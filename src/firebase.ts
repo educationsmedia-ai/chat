@@ -1,0 +1,421 @@
+import { initializeApp } from 'firebase/app';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut as fbSignOut,
+  onAuthStateChanged,
+  type User
+} from 'firebase/auth';
+import {
+  getFirestore,
+  doc,
+  getDoc,
+  getDocFromServer,
+  collection,
+  query,
+  orderBy,
+  limit,
+  onSnapshot,
+  setDoc,
+  updateDoc,
+  addDoc,
+  serverTimestamp,
+  type Unsubscribe
+} from 'firebase/firestore';
+import firebaseConfig from '../firebase-applet-config.json';
+import type { Room, ChatMessage, RoomParticipant } from './types';
+
+// 1. Initialize Firebase App and Database
+const app = initializeApp(firebaseConfig);
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const auth = getAuth(app);
+export const googleProvider = new GoogleAuthProvider();
+
+// 2. Strict Error Handling conforming to FirestoreErrorInfo
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  };
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
+  const currentUser = auth.currentUser;
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: currentUser?.uid ?? null,
+      email: currentUser?.email ?? null,
+      emailVerified: currentUser?.emailVerified ?? null,
+      isAnonymous: currentUser?.isAnonymous ?? null,
+      tenantId: currentUser?.tenantId ?? null,
+      providerInfo: currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || [],
+    },
+    operationType,
+    path,
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+// 3. Connection Test on App Boot (as mandated by Skill)
+export async function testConnection(): Promise<boolean> {
+  try {
+    if (auth.currentUser) {
+      await getDocFromServer(doc(db, 'test', 'connection'));
+    }
+    return true;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.warn('Firebase client is offline. Periksa koneksi internet Anda.');
+      return false;
+    }
+    return true;
+  }
+}
+
+// 4. Authentication Helpers
+export async function loginWithGoogle(): Promise<User> {
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    return result.user;
+  } catch (err) {
+    console.error('Login error:', err);
+    throw err;
+  }
+}
+
+export async function logoutUser(): Promise<void> {
+  await fbSignOut(auth);
+}
+
+// 5. Room Management Functions
+
+/**
+ * Generate a short, friendly room code (e.g., 'ABC123')
+ */
+export function generateRoomCode(): string {
+  const characters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let result = '';
+  for (let i = 0; i < 6; i++) {
+    result += characters.charAt(Math.floor(Math.random() * characters.length));
+  }
+  return result;
+}
+
+/**
+ * Create a new 2-user room with User 1 as creator
+ */
+export async function createRoomInFirestore(
+  code: string,
+  roomName: string,
+  creator: { uid: string; name: string; email?: string; avatar?: string }
+): Promise<string> {
+  const formattedCode = code.trim().toUpperCase();
+  const roomPath = `rooms/${formattedCode}`;
+
+  const user1Data: RoomParticipant = {
+    uid: creator.uid,
+    name: creator.name.trim() || 'Pengguna 1',
+    email: creator.email || '',
+    avatar: creator.avatar || '',
+    joinedAt: new Date().toISOString(),
+  };
+
+  const newRoomData = {
+    code: formattedCode,
+    name: roomName.trim() || `Ruang ${formattedCode}`,
+    status: 'waiting',
+    createdAt: serverTimestamp(),
+    createdBy: creator.uid,
+    user1: user1Data,
+    user2: null,
+    user1Online: true,
+    user2Online: false,
+    user1Typing: false,
+    user2Typing: false,
+  };
+
+  try {
+    const roomRef = doc(db, 'rooms', formattedCode);
+    await setDoc(roomRef, newRoomData);
+    return formattedCode;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, roomPath);
+  }
+}
+
+/**
+ * Fetch a room document by code
+ */
+export async function getRoomByCode(code: string): Promise<Room | null> {
+  const formattedCode = code.trim().toUpperCase();
+  const roomPath = `rooms/${formattedCode}`;
+  try {
+    const roomRef = doc(db, 'rooms', formattedCode);
+    const snap = await getDoc(roomRef);
+    if (!snap.exists()) {
+      return null;
+    }
+    return { id: snap.id, ...snap.data() } as Room;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, roomPath);
+  }
+}
+
+/**
+ * Join an existing room as User 2 (enforcing max 2 users limit)
+ */
+export async function joinRoomInFirestore(
+  code: string,
+  user: { uid: string; name: string; email?: string; avatar?: string }
+): Promise<{ success: boolean; message?: string; room?: Room }> {
+  const formattedCode = code.trim().toUpperCase();
+  const roomPath = `rooms/${formattedCode}`;
+
+  const room = await getRoomByCode(formattedCode);
+  if (!room) {
+    return { success: false, message: 'Kode room tidak ditemukan. Silakan periksa kembali kode Anda.' };
+  }
+
+  if (room.status === 'closed') {
+    return { success: false, message: 'Room ini sudah ditutup atau tidak aktif lagi.' };
+  }
+
+  // If already user 1, simply return success (re-joining own room)
+  if (room.user1.uid === user.uid) {
+    await updateDoc(doc(db, 'rooms', formattedCode), {
+      user1Online: true,
+    }).catch(err => handleFirestoreError(err, OperationType.UPDATE, roomPath));
+    return { success: true, room };
+  }
+
+  // If already user 2, simply return success (re-joining)
+  if (room.user2 && room.user2.uid === user.uid) {
+    await updateDoc(doc(db, 'rooms', formattedCode), {
+      user2Online: true,
+    }).catch(err => handleFirestoreError(err, OperationType.UPDATE, roomPath));
+    return { success: true, room };
+  }
+
+  // If room already has user 2 and it is someone else: LIMIT 2 USERS EXCEEDED!
+  if (room.user2 && room.user2.uid !== user.uid) {
+    return {
+      success: false,
+      message: 'Room sudah penuh. Maksimal 2 pengguna.',
+    };
+  }
+
+  // Room is waiting for user 2: Join!
+  const user2Data: RoomParticipant = {
+    uid: user.uid,
+    name: user.name.trim() || 'Pengguna 2',
+    email: user.email || '',
+    avatar: user.avatar || '',
+    joinedAt: new Date().toISOString(),
+  };
+
+  try {
+    const roomRef = doc(db, 'rooms', formattedCode);
+    await updateDoc(roomRef, {
+      user2: user2Data,
+      status: 'active',
+      user2Online: true,
+      user2Typing: false,
+    });
+    return { success: true, room: { ...room, user2: user2Data, status: 'active', user2Online: true } };
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, roomPath);
+  }
+}
+
+/**
+ * Subscribe to real-time updates for a room document
+ */
+export function subscribeToRoom(
+  roomId: string,
+  onUpdate: (room: Room | null) => void,
+  onError: (error: Error) => void
+): Unsubscribe {
+  const roomPath = `rooms/${roomId}`;
+  const roomRef = doc(db, 'rooms', roomId);
+
+  return onSnapshot(
+    roomRef,
+    (snap) => {
+      if (snap.exists()) {
+        onUpdate({ id: snap.id, ...snap.data() } as Room);
+      } else {
+        onUpdate(null);
+      }
+    },
+    (error) => {
+      onError(error);
+      handleFirestoreError(error, OperationType.GET, roomPath);
+    }
+  );
+}
+
+/**
+ * Subscribe to real-time chat messages
+ */
+export function subscribeToMessages(
+  roomId: string,
+  onUpdate: (messages: ChatMessage[]) => void,
+  onError: (error: Error) => void
+): Unsubscribe {
+  const messagesPath = `rooms/${roomId}/messages`;
+  const messagesRef = collection(db, 'rooms', roomId, 'messages');
+  const q = query(messagesRef, orderBy('timestamp', 'asc'), limit(500));
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const messages: ChatMessage[] = [];
+      snapshot.forEach((docSnap) => {
+        messages.push({
+          id: docSnap.id,
+          ...docSnap.data(),
+        } as ChatMessage);
+      });
+      onUpdate(messages);
+    },
+    (error) => {
+      onError(error);
+      handleFirestoreError(error, OperationType.LIST, messagesPath);
+    }
+  );
+}
+
+/**
+ * Send a chat message
+ */
+export async function sendChatMessage(
+  roomId: string,
+  sender: { uid: string; name: string },
+  text: string
+): Promise<void> {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    throw new Error('Pesan tidak boleh kosong');
+  }
+  if (trimmed.length > 2000) {
+    throw new Error('Panjang pesan melebihi batas 2000 karakter');
+  }
+
+  const messagesPath = `rooms/${roomId}/messages`;
+  try {
+    const messagesRef = collection(db, 'rooms', roomId, 'messages');
+    await addDoc(messagesRef, {
+      senderId: sender.uid,
+      senderName: sender.name,
+      text: trimmed,
+      timestamp: serverTimestamp(),
+      read: false,
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, messagesPath);
+  }
+}
+
+/**
+ * Mark unread messages sent by the counterpart as read (✓✓ Dibaca)
+ */
+export async function markMessagesAsRead(
+  roomId: string,
+  currentUserId: string,
+  messages: ChatMessage[]
+): Promise<void> {
+  const unreadFromOther = messages.filter(
+    (m) => !m.read && m.senderId !== currentUserId
+  );
+
+  for (const msg of unreadFromOther) {
+    const msgPath = `rooms/${roomId}/messages/${msg.id}`;
+    try {
+      const msgRef = doc(db, 'rooms', roomId, 'messages', msg.id);
+      await updateDoc(msgRef, { read: true });
+    } catch (error) {
+      console.warn('Could not mark message as read:', error);
+    }
+  }
+}
+
+/**
+ * Update typing status
+ */
+export async function setTypingStatus(
+  roomId: string,
+  slot: 'user1' | 'user2',
+  isTyping: boolean
+): Promise<void> {
+  const roomPath = `rooms/${roomId}`;
+  const key = slot === 'user1' ? 'user1Typing' : 'user2Typing';
+  try {
+    const roomRef = doc(db, 'rooms', roomId);
+    await updateDoc(roomRef, {
+      [key]: isTyping,
+    });
+  } catch (error) {
+    // Non-fatal typing update error
+    console.debug('Typing update suppressed:', error);
+  }
+}
+
+/**
+ * Update online presence status
+ */
+export async function setPresenceStatus(
+  roomId: string,
+  slot: 'user1' | 'user2',
+  isOnline: boolean
+): Promise<void> {
+  const roomPath = `rooms/${roomId}`;
+  const key = slot === 'user1' ? 'user1Online' : 'user2Online';
+  try {
+    const roomRef = doc(db, 'rooms', roomId);
+    await updateDoc(roomRef, {
+      [key]: isOnline,
+    });
+  } catch (error) {
+    console.warn('Presence update error:', error);
+  }
+}
+
+/**
+ * Close or leave room
+ */
+export async function closeRoomInFirestore(roomId: string): Promise<void> {
+  const roomPath = `rooms/${roomId}`;
+  try {
+    const roomRef = doc(db, 'rooms', roomId);
+    await updateDoc(roomRef, {
+      status: 'closed',
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, roomPath);
+  }
+}

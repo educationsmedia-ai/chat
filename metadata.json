@@ -1,0 +1,6 @@
+{
+  "name": "Live Chat",
+  "description": "Aplikasi web Live Chat real-time multiplayer 2 orang untuk HP dan desktop dengan kode room unik dan sinkronisasi pesan instan.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
