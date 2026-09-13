@@ -61,7 +61,7 @@
     },
     "Message": {
       "title": "Message",
-      "description": "Chat message sent in a room",
+      "description": "Chat message sent in a room with optional photo",
       "type": "object",
       "properties": {
         "senderId": {
@@ -77,9 +77,13 @@
         },
         "text": {
           "type": "string",
-          "description": "Body of the chat message",
-          "maxLength": 2000,
-          "minLength": 1
+          "description": "Body of the chat message or image caption",
+          "maxLength": 2000
+        },
+        "imageUrl": {
+          "type": "string",
+          "description": "Optional compressed base64 image data URL",
+          "maxLength": 350000
         },
         "timestamp": {
           "type": "string",
@@ -91,7 +95,24 @@
           "description": "Whether the message has been read by the other participant"
         }
       },
-      "required": ["senderId", "senderName", "text", "read"]
+      "required": ["senderId", "senderName", "read"]
+    },
+    "Call": {
+      "title": "Call",
+      "description": "WebRTC Video Call signaling session between room participants",
+      "type": "object",
+      "properties": {
+        "callerId": { "type": "string" },
+        "callerName": { "type": "string" },
+        "receiverId": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["ringing", "accepted", "rejected", "ended", "busy"]
+        },
+        "offer": { "type": "object" },
+        "answer": { "type": "object" }
+      },
+      "required": ["callerId", "callerName", "receiverId", "status"]
     }
   },
   "firestore": {
@@ -102,6 +123,10 @@
     "/rooms/{roomId}/messages/{messageId}": {
       "schema": "Message",
       "description": "Subcollection of real-time messages for the room"
+    },
+    "/rooms/{roomId}/calls/{callId}": {
+      "schema": "Call",
+      "description": "Subcollection of WebRTC call sessions"
     }
   }
 }

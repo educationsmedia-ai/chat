@@ -33,8 +33,28 @@ export interface ChatMessage {
   senderId: string;
   senderName: string;
   text: string;
+  imageUrl?: string;
   timestamp: any;
   read: boolean;
+}
+
+export type CallStatus = 'ringing' | 'accepted' | 'rejected' | 'ended' | 'busy';
+
+export interface CallSession {
+  id: string;
+  callerId: string;
+  callerName: string;
+  receiverId: string;
+  status: CallStatus;
+  offer?: {
+    type: 'offer';
+    sdp: string;
+  };
+  answer?: {
+    type: 'answer';
+    sdp: string;
+  };
+  createdAt?: any;
 }
 
 export interface LocalUserProfile {

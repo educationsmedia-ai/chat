@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, ShieldCheck, Database, Server, Smartphone, CheckCircle2, Copy } from 'lucide-react';
+import { X, ShieldCheck, Database, Server, Smartphone, CheckCircle2, Copy, Camera } from 'lucide-react';
 
 interface GuideModalProps {
   isOpen: boolean;
@@ -92,10 +92,25 @@ export const GuideModal: React.FC<GuideModalProps> = ({ isOpen, onClose }) => {
             </ul>
           </section>
 
+          {/* Kirim Foto & Video Call */}
+          <section className="space-y-2.5">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-teal-400 flex items-center gap-1.5">
+              <Camera size={15} /> 4. Fitur Kirim Foto & Video Call
+            </h3>
+            <div className="bg-neutral-800/60 p-3.5 rounded-xl border border-neutral-700/60 space-y-2 text-xs leading-relaxed">
+              <p>
+                <strong className="text-neutral-100">Kirim Foto:</strong> Tekan tombol kamera di samping kolom input untuk memilih foto dari galeri atau kamera HP. Foto dikompresi otomatis tanpa membebani kuota, dan dapat diperbesar (zoom) dengan mengklik foto di bubble chat.
+              </p>
+              <p>
+                <strong className="text-neutral-100">Video Call Real-Time (WebRTC):</strong> Tekan tombol hijau <strong className="text-emerald-400">Video Call</strong> di header setelah kedua pengguna terhubung. Lawan bicara akan menerima dering panggilan masuk dan dapat menerima atau menolak. Panggilan dilengkapi fitur bisukan audio (Mute), matikan kamera, dan ganti kamera depan/belakang di HP.
+              </p>
+            </div>
+          </section>
+
           {/* Deployment Guide */}
           <section className="space-y-2.5">
             <h3 className="text-xs font-bold uppercase tracking-wider text-rose-400 flex items-center gap-1.5">
-              <Server size={15} /> 4. Petunjuk Deployment (Firebase Hosting & Vercel)
+              <Server size={15} /> 5. Petunjuk Deployment (Firebase Hosting & Vercel)
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
               <div className="bg-neutral-800/40 p-3 rounded-xl border border-neutral-800">

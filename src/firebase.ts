@@ -14,6 +14,7 @@ import {
   getDocFromServer,
   collection,
   query,
+  where,
   orderBy,
   limit,
   onSnapshot,
@@ -354,11 +355,12 @@ export function subscribeToMessages(
 export async function sendChatMessage(
   roomId: string,
   sender: { uid: string; name: string },
-  text: string
+  text: string,
+  imageUrl?: string
 ): Promise<void> {
   const trimmed = text.trim();
-  if (!trimmed) {
-    throw new Error('Pesan tidak boleh kosong');
+  if (!trimmed && !imageUrl) {
+    throw new Error('Pesan atau foto tidak boleh kosong');
   }
   if (trimmed.length > 2000) {
     throw new Error('Panjang pesan melebihi batas 2000 karakter');
@@ -367,16 +369,138 @@ export async function sendChatMessage(
   const messagesPath = `rooms/${roomId}/messages`;
   try {
     const messagesRef = collection(db, 'rooms', roomId, 'messages');
-    await addDoc(messagesRef, {
+    const payload: any = {
       senderId: sender.uid,
       senderName: sender.name,
       text: trimmed,
       timestamp: serverTimestamp(),
       read: false,
-    });
+    };
+    if (imageUrl) {
+      payload.imageUrl = imageUrl;
+    }
+    await addDoc(messagesRef, payload);
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, messagesPath);
   }
+}
+
+/**
+ * WebRTC Video Call Signaling Configuration & Helpers
+ */
+export const rtcIceServers: RTCConfiguration = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+  ],
+};
+
+export async function createCallSession(
+  roomId: string,
+  caller: { uid: string; name: string },
+  receiverId: string,
+  offerSdp: any
+): Promise<string> {
+  const callId = 'call_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+  const callRef = doc(db, 'rooms', roomId, 'calls', callId);
+  await setDoc(callRef, {
+    callerId: caller.uid,
+    callerName: caller.name,
+    receiverId,
+    status: 'ringing',
+    offer: offerSdp,
+  });
+  return callId;
+}
+
+export function listenToCallSession(
+  roomId: string,
+  callId: string,
+  onUpdate: (call: any) => void
+): Unsubscribe {
+  const callRef = doc(db, 'rooms', roomId, 'calls', callId);
+  return onSnapshot(callRef, (snapshot) => {
+    if (snapshot.exists()) {
+      onUpdate({ id: snapshot.id, ...snapshot.data() });
+    } else {
+      onUpdate(null);
+    }
+  });
+}
+
+export function listenToIncomingCalls(
+  roomId: string,
+  currentUserId: string,
+  onCall: (call: any | null) => void
+): Unsubscribe {
+  const callsRef = collection(db, 'rooms', roomId, 'calls');
+  const q = query(
+    callsRef,
+    where('receiverId', '==', currentUserId),
+    where('status', '==', 'ringing'),
+    limit(1)
+  );
+  return onSnapshot(q, (snapshot) => {
+    if (!snapshot.empty) {
+      const docSnap = snapshot.docs[0];
+      onCall({ id: docSnap.id, ...docSnap.data() });
+    } else {
+      onCall(null);
+    }
+  });
+}
+
+export async function answerCallSession(
+  roomId: string,
+  callId: string,
+  answerSdp: any
+): Promise<void> {
+  const callRef = doc(db, 'rooms', roomId, 'calls', callId);
+  await updateDoc(callRef, {
+    status: 'accepted',
+    answer: answerSdp,
+  });
+}
+
+export async function updateCallStatus(
+  roomId: string,
+  callId: string,
+  status: 'rejected' | 'ended' | 'busy'
+): Promise<void> {
+  const callRef = doc(db, 'rooms', roomId, 'calls', callId);
+  await updateDoc(callRef, {
+    status,
+  }).catch((err) => console.warn('Update call status error:', err));
+}
+
+export async function addIceCandidate(
+  roomId: string,
+  callId: string,
+  role: 'caller' | 'receiver',
+  candidate: RTCIceCandidate
+): Promise<void> {
+  const candCollection = collection(db, 'rooms', roomId, 'calls', callId, `${role}Candidates`);
+  await addDoc(candCollection, candidate.toJSON());
+}
+
+export function listenToIceCandidates(
+  roomId: string,
+  callId: string,
+  remoteRole: 'caller' | 'receiver',
+  onCandidate: (candidateInit: RTCIceCandidateInit) => void
+): Unsubscribe {
+  const candCollection = collection(db, 'rooms', roomId, 'calls', callId, `${remoteRole}Candidates`);
+  return onSnapshot(candCollection, (snapshot) => {
+    snapshot.docChanges().forEach((change) => {
+      if (change.type === 'added') {
+        const data = change.doc.data();
+        onCandidate(data as RTCIceCandidateInit);
+      }
+    });
+  });
 }
 
 /**

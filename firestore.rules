@@ -30,13 +30,14 @@ service cloud.firestore {
         data.user1Online is bool;
     }
 
-    // Message Entity Validation Helper
+    // Message Entity Validation Helper (Supports Text & Compressed Photos)
     function isValidMessage(data) {
       return data.keys().hasAll(['senderId', 'senderName', 'text', 'read']) &&
         data.senderId is string && data.senderId.size() >= 1 && data.senderId.size() <= 128 &&
         data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 64 &&
-        data.text is string && data.text.size() >= 1 && data.text.size() <= 2000 &&
-        data.read is bool;
+        data.text is string && data.text.size() <= 2000 &&
+        data.read is bool &&
+        (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 350000));
     }
 
     // Rooms Collection
@@ -93,6 +94,38 @@ service cloud.firestore {
           incoming().read == true;
 
         allow delete: if false;
+      }
+
+      // Subcollection: WebRTC Video Call Signaling
+      match /calls/{callId} {
+        allow get, list: if isValidId(roomId);
+
+        allow create: if isValidId(roomId) &&
+          isValidId(callId) &&
+          incoming().keys().hasAll(['callerId', 'callerName', 'receiverId', 'status', 'offer']) &&
+          incoming().status == 'ringing';
+
+        allow update: if isValidId(roomId) &&
+          isValidId(callId) &&
+          (
+            // Receiver accepts with answer SDP
+            (incoming().status == 'accepted' && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'answer'])) ||
+            // Either party rejects or ends call
+            ((incoming().status == 'rejected' || incoming().status == 'ended' || incoming().status == 'busy') &&
+             incoming().diff(existing()).affectedKeys().hasOnly(['status']))
+          );
+
+        allow delete: if isValidId(roomId) && isValidId(callId);
+
+        match /callerCandidates/{candId} {
+          allow read: if isValidId(roomId) && isValidId(callId);
+          allow create: if isValidId(roomId) && isValidId(callId) && isValidId(candId);
+        }
+
+        match /receiverCandidates/{candId} {
+          allow read: if isValidId(roomId) && isValidId(callId);
+          allow create: if isValidId(roomId) && isValidId(callId) && isValidId(candId);
+        }
       }
     }
 
