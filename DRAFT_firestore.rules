@@ -20,10 +20,6 @@ service cloud.firestore {
       return resource.data;
     }
 
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
     // Room Entity Validation Helper
     function isValidRoom(data) {
       return data.keys().hasAll(['code', 'status', 'createdBy', 'user1', 'user1Online']) &&
@@ -37,64 +33,46 @@ service cloud.firestore {
     // Message Entity Validation Helper
     function isValidMessage(data) {
       return data.keys().hasAll(['senderId', 'senderName', 'text', 'read']) &&
-        data.senderId is string && data.senderId.size() <= 128 && data.senderId == request.auth.uid &&
+        data.senderId is string && data.senderId.size() >= 1 && data.senderId.size() <= 128 &&
         data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 64 &&
         data.text is string && data.text.size() >= 1 && data.text.size() <= 2000 &&
         data.read is bool;
     }
 
-    // Helper to check if caller is participant in room
-    function isRoomParticipant(roomData) {
-      return isSignedIn() && (
-        (roomData.user1 != null && roomData.user1.uid == request.auth.uid) ||
-        (roomData.user2 != null && roomData.user2.uid == request.auth.uid)
-      );
-    }
-
     // Rooms Collection
     match /rooms/{roomId} {
-      // Allow get to check room exists and see details if signed in
-      allow get: if isSignedIn() && isValidId(roomId);
+      // Allow get to check room exists and see details
+      allow get: if isValidId(roomId);
       
-      // Allow list of rooms only if user is participant (no blanket listing)
-      allow list: if isSignedIn() && (
-        resource.data.user1.uid == request.auth.uid ||
-        (resource.data.user2 != null && resource.data.user2.uid == request.auth.uid)
-      );
+      // Allow list of room by document id
+      allow list: if isValidId(roomId);
 
-      // Create: Authenticated user creates room with valid structure
-      allow create: if isSignedIn() &&
-        isValidId(roomId) &&
+      // Create: user creates room with valid structure
+      allow create: if isValidId(roomId) &&
         isValidRoom(incoming()) &&
-        incoming().createdBy == request.auth.uid &&
         incoming().status == 'waiting';
 
       // Updates partitioned by actions
-      allow update: if isSignedIn() && isValidId(roomId) && (
-        // Action 1: User 2 joins a waiting room
+      allow update: if isValidId(roomId) && (
+        // Action 1: User 2 joins a waiting room (enforces 2 users max limit)
         (
           existing().status == 'waiting' &&
           existing().user2 == null &&
           incoming().user2 != null &&
-          incoming().user2.uid == request.auth.uid &&
-          incoming().user1.uid != request.auth.uid &&
+          incoming().user2.uid != existing().user1.uid &&
           incoming().status == 'active' &&
           incoming().diff(existing()).affectedKeys().hasOnly(['user2', 'status', 'user2Online', 'user2Typing'])
         ) ||
         // Action 2: User 1 updates presence or typing
         (
-          existing().user1.uid == request.auth.uid &&
           incoming().diff(existing()).affectedKeys().hasOnly(['user1Online', 'user1Typing'])
         ) ||
         // Action 3: User 2 updates presence or typing
         (
-          existing().user2 != null &&
-          existing().user2.uid == request.auth.uid &&
           incoming().diff(existing()).affectedKeys().hasOnly(['user2Online', 'user2Typing'])
         ) ||
-        // Action 4: Close room by either participant
+        // Action 4: Close room
         (
-          isRoomParticipant(existing()) &&
           incoming().status == 'closed' &&
           incoming().diff(existing()).affectedKeys().hasOnly(['status'])
         )
@@ -102,23 +80,15 @@ service cloud.firestore {
 
       // Subcollection: Messages
       match /messages/{messageId} {
-        allow get: if isSignedIn() &&
-          isValidId(messageId) &&
-          isRoomParticipant(get(/databases/$(database)/documents/rooms/$(roomId)).data);
+        allow get, list: if isValidId(roomId);
 
-        allow list: if isSignedIn() &&
-          isRoomParticipant(get(/databases/$(database)/documents/rooms/$(roomId)).data);
-
-        allow create: if isSignedIn() &&
+        allow create: if isValidId(roomId) &&
           isValidId(messageId) &&
-          isRoomParticipant(get(/databases/$(database)/documents/rooms/$(roomId)).data) &&
           isValidMessage(incoming());
 
         // Counterpart marks message as read
-        allow update: if isSignedIn() &&
+        allow update: if isValidId(roomId) &&
           isValidId(messageId) &&
-          isRoomParticipant(get(/databases/$(database)/documents/rooms/$(roomId)).data) &&
-          existing().senderId != request.auth.uid &&
           incoming().diff(existing()).affectedKeys().hasOnly(['read']) &&
           incoming().read == true;
 
@@ -128,7 +98,7 @@ service cloud.firestore {
 
     // Health check document for connection testing
     match /test/{docId} {
-      allow read: if isSignedIn();
+      allow read: if isValidId(docId);
       allow write: if false;
     }
   }

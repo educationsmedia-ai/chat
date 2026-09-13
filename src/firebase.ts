@@ -98,13 +98,51 @@ export async function testConnection(): Promise<boolean> {
 }
 
 // 4. Authentication Helpers
+export function getOrCreateSessionUser(preferredName?: string): { uid: string; name: string; email?: string; avatar?: string } {
+  if (auth.currentUser) {
+    return {
+      uid: auth.currentUser.uid,
+      name: preferredName?.trim() || auth.currentUser.displayName || 'Pengguna',
+      email: auth.currentUser.email || '',
+      avatar: auth.currentUser.photoURL || '',
+    };
+  }
+
+  let sessionUid = localStorage.getItem('livechat_session_uid');
+  if (!sessionUid) {
+    sessionUid = 'user_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+    localStorage.setItem('livechat_session_uid', sessionUid);
+  }
+
+  const savedName = localStorage.getItem('livechat_username') || preferredName?.trim() || 'Pengguna';
+  return {
+    uid: sessionUid,
+    name: preferredName?.trim() || savedName,
+    email: '',
+    avatar: '',
+  };
+}
+
 export async function loginWithGoogle(): Promise<User> {
   try {
     const result = await signInWithPopup(auth, googleProvider);
     return result.user;
-  } catch (err) {
+  } catch (err: any) {
     console.error('Login error:', err);
-    throw err;
+    if (err?.code === 'auth/unauthorized-domain') {
+      throw new Error(
+        'Domain preview belum terdaftar di Authorized Domains Firebase Console. Anda tetap dapat menggunakan Mode Instan (langsung ketik nama dan buat/gabung room tanpa login Google).'
+      );
+    }
+    if (err?.code === 'auth/popup-blocked') {
+      throw new Error(
+        'Jendela pop-up Google diblokir oleh browser / iframe. Silakan izinkan pop-up atau gunakan Mode Instan tanpa login.'
+      );
+    }
+    if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
+      throw new Error('Proses login Google dibatalkan.');
+    }
+    throw new Error(err?.message || 'Gagal login dengan Google.');
   }
 }
 

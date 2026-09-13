@@ -7,20 +7,18 @@ import {
   Copy,
   Check,
   HelpCircle,
-  Sparkles,
   AlertCircle,
   Users,
-  ShieldCheck,
   Radio,
   ArrowRight,
 } from 'lucide-react';
 import {
-  auth,
   loginWithGoogle,
   logoutUser,
   generateRoomCode,
   createRoomInFirestore,
   joinRoomInFirestore,
+  getOrCreateSessionUser,
 } from '../firebase';
 import type { LocalUserProfile, Room } from '../types';
 
@@ -81,22 +79,19 @@ export const Lobby: React.FC<LobbyProps> = ({
     }
   };
 
-  // Ensure user is signed in with Google (mandatory for Firestore security rules)
-  const ensureAuthenticated = async () => {
-    if (auth.currentUser) {
-      return auth.currentUser;
-    }
+  // Google Login button handler (optional)
+  const handleGoogleLogin = async () => {
     setIsAuthenticating(true);
+    setErrorMsg(null);
     try {
       const user = await loginWithGoogle();
-      if (!userName) {
-        setUserName(user.displayName || 'Pengguna');
-        localStorage.setItem('livechat_username', user.displayName || 'Pengguna');
+      if (user.displayName) {
+        setUserName(user.displayName);
+        localStorage.setItem('livechat_username', user.displayName);
       }
-      return user;
-    } catch (err) {
-      console.error('Authentication cancelled or failed:', err);
-      throw new Error('Diperlukan otentikasi Google untuk mengakses database Firebase secara aman.');
+    } catch (err: any) {
+      console.error('Google login error:', err);
+      setErrorMsg(err.message || 'Gagal login Google.');
     } finally {
       setIsAuthenticating(false);
     }
@@ -115,7 +110,7 @@ export const Lobby: React.FC<LobbyProps> = ({
 
     try {
       setIsLoading(true);
-      const user = await ensureAuthenticated();
+      const user = getOrCreateSessionUser(trimmedName);
 
       const createdCode = await createRoomInFirestore(
         generatedCode,
@@ -124,7 +119,7 @@ export const Lobby: React.FC<LobbyProps> = ({
           uid: user.uid,
           name: trimmedName,
           email: user.email || '',
-          avatar: user.photoURL || '',
+          avatar: user.avatar || '',
         }
       );
 
@@ -139,7 +134,7 @@ export const Lobby: React.FC<LobbyProps> = ({
           uid: user.uid,
           name: trimmedName,
           email: user.email || '',
-          avatar: user.photoURL || '',
+          avatar: user.avatar || '',
         },
         user2: null,
         user1Online: true,
@@ -180,13 +175,13 @@ export const Lobby: React.FC<LobbyProps> = ({
 
     try {
       setIsLoading(true);
-      const user = await ensureAuthenticated();
+      const user = getOrCreateSessionUser(trimmedName);
 
       const result = await joinRoomInFirestore(cleanCode, {
         uid: user.uid,
         name: trimmedName,
         email: user.email || '',
-        avatar: user.photoURL || '',
+        avatar: user.avatar || '',
       });
 
       if (!result.success || !result.room) {
@@ -262,12 +257,13 @@ export const Lobby: React.FC<LobbyProps> = ({
           ) : (
             <button
               id="google-login-header-btn"
-              onClick={ensureAuthenticated}
+              onClick={handleGoogleLogin}
               disabled={isAuthenticating}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/15 border border-emerald-500/30 text-xs font-semibold text-emerald-300 hover:bg-emerald-600/25 transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-xs font-medium text-neutral-300 hover:text-white transition-colors cursor-pointer"
+              title="Masuk dengan akun Google (Opsional)"
             >
               <LogIn size={13} />
-              <span>{isAuthenticating ? 'Menghubungkan...' : 'Masuk Google'}</span>
+              <span>{isAuthenticating ? 'Menghubungkan...' : 'Masuk Google (Opsional)'}</span>
             </button>
           )}
         </div>
@@ -297,22 +293,9 @@ export const Lobby: React.FC<LobbyProps> = ({
                 </span>
               </div>
               <p className="text-[11px] text-neutral-400 mt-1">
-                Nama ini akan ditampilkan kepada lawan bicara di dalam ruang chat.
+                Ketik nama Anda di atas, lalu langsung klik <strong>Buat Room</strong> atau <strong>Gabung Room</strong>.
               </p>
             </div>
-
-            {/* Google Authentication Notification status */}
-            {!currentUser && (
-              <div className="bg-neutral-950/70 border border-neutral-800 rounded-xl p-3 flex items-start gap-2.5 text-xs text-neutral-300">
-                <ShieldCheck size={16} className="text-emerald-400 shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  <p className="text-neutral-200 font-medium leading-tight">Keamanan Database Firebase</p>
-                  <p className="text-neutral-400 text-[11px] mt-0.5">
-                    Aplikasi menggunakan Firestore terenkripsi. Otentikasi Google 1-klik akan dilakukan otomatis saat Anda membuat atau bergabung room.
-                  </p>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Action Tabs: Buat Room vs Gabung Room */}
@@ -345,9 +328,16 @@ export const Lobby: React.FC<LobbyProps> = ({
 
           {/* Error Message Banner */}
           {errorMsg && (
-            <div className="mb-5 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2.5 animate-in fade-in duration-150">
-              <AlertCircle size={16} className="shrink-0 mt-0.5 text-rose-400" />
-              <div className="flex-1 font-medium">{errorMsg}</div>
+            <div className="mb-5 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs space-y-1.5 animate-in fade-in duration-150">
+              <div className="flex items-start gap-2">
+                <AlertCircle size={16} className="shrink-0 mt-0.5 text-rose-400" />
+                <div className="flex-1 font-medium">{errorMsg}</div>
+              </div>
+              {errorMsg.includes('Google') && (
+                <div className="pl-6 text-[11px] text-neutral-400 flex items-center gap-2">
+                  <span>💡 Anda tidak wajib login Google. Cukup isi nama Anda dan langsung buat/gabung room.</span>
+                </div>
+              )}
             </div>
           )}
 
@@ -411,10 +401,10 @@ export const Lobby: React.FC<LobbyProps> = ({
               <button
                 id="create-and-enter-btn"
                 type="submit"
-                disabled={isLoading || isAuthenticating}
+                disabled={isLoading}
                 className="w-full mt-2 py-3 px-4 bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
-                {isLoading || isAuthenticating ? (
+                {isLoading ? (
                   <>
                     <RefreshCw size={16} className="animate-spin" />
                     <span>Menyiapkan Room...</span>
@@ -456,10 +446,10 @@ export const Lobby: React.FC<LobbyProps> = ({
               <button
                 id="join-room-submit-btn"
                 type="submit"
-                disabled={isLoading || isAuthenticating}
+                disabled={isLoading}
                 className="w-full mt-2 py-3 px-4 bg-cyan-500 hover:bg-cyan-400 text-neutral-950 font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-cyan-500/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
-                {isLoading || isAuthenticating ? (
+                {isLoading ? (
                   <>
                     <RefreshCw size={16} className="animate-spin" />
                     <span>Memeriksa & Bergabung...</span>

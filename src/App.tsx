@@ -80,8 +80,18 @@ export default function App() {
         <ChatRoom
           initialRoom={activeRoom}
           userSlot={userSlot}
-          currentUserId={currentUser?.uid || auth.currentUser?.uid || ''}
-          currentUserName={currentUser?.name || 'Pengguna'}
+          currentUserId={
+            currentUser?.uid ||
+            (userSlot === 'user1' ? activeRoom.user1.uid : activeRoom.user2?.uid) ||
+            localStorage.getItem('livechat_session_uid') ||
+            ''
+          }
+          currentUserName={
+            currentUser?.name ||
+            (userSlot === 'user1' ? activeRoom.user1.name : activeRoom.user2?.name) ||
+            localStorage.getItem('livechat_username') ||
+            'Pengguna'
+          }
           onLeaveRoom={handleLeaveRoom}
         />
       )}
