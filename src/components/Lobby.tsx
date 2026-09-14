@@ -11,6 +11,8 @@ import {
   Users,
   Radio,
   ArrowRight,
+  Smartphone,
+  Download,
 } from 'lucide-react';
 import {
   loginWithGoogle,
@@ -46,6 +48,47 @@ export const Lobby: React.FC<LobbyProps> = ({
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'create' | 'join'>('create');
   const [isAuthenticating, setIsAuthenticating] = useState<boolean>(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstalled, setIsInstalled] = useState<boolean>(false);
+
+  useEffect(() => {
+    // Check if already installed in standalone mode
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      setIsInstalled(true);
+    }
+
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    const handleAppInstalled = () => {
+      setIsInstalled(true);
+      setDeferredPrompt(null);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const choiceResult = await deferredPrompt.userChoice;
+      if (choiceResult.outcome === 'accepted') {
+        setIsInstalled(true);
+      }
+      setDeferredPrompt(null);
+    } else {
+      // Show user instructions via Guide Modal
+      onOpenGuide();
+    }
+  };
 
   // Sync username when currentUser updates
   useEffect(() => {
@@ -130,6 +173,20 @@ export const Lobby: React.FC<LobbyProps> = ({
         status: 'waiting',
         createdAt: new Date(),
         createdBy: user.uid,
+        maxParticipants: 20,
+        participantCount: 1,
+        participantIds: [user.uid],
+        participants: {
+          [user.uid]: {
+            uid: user.uid,
+            name: trimmedName,
+            email: user.email || '',
+            avatar: user.avatar || '',
+            joinedAt: new Date().toISOString(),
+            online: true,
+            typing: false,
+          },
+        },
         user1: {
           uid: user.uid,
           name: trimmedName,
@@ -189,7 +246,10 @@ export const Lobby: React.FC<LobbyProps> = ({
         return;
       }
 
-      const slot = result.room.user1.uid === user.uid ? 'user1' : 'user2';
+      const slot =
+        result.room.createdBy === user.uid || result.room.user1?.uid === user.uid
+          ? 'user1'
+          : 'user2';
       onEnterRoom(result.room, slot);
     } catch (err: unknown) {
       console.error('Failed to join room:', err);
@@ -218,11 +278,23 @@ export const Lobby: React.FC<LobbyProps> = ({
                 Real-Time
               </span>
             </h1>
-            <p className="text-xs text-neutral-400">Percakapan instan 2 orang • Aman & Terenkripsi</p>
+            <p className="text-xs text-neutral-400">Percakapan grup hingga 20 orang • Aman & Terenkripsi</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
+          {!isInstalled && (
+            <button
+              id="install-android-pwa-btn"
+              onClick={handleInstallClick}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-xs font-semibold text-emerald-400 hover:text-emerald-300 transition-all cursor-pointer shadow-sm"
+              title="Pasang aplikasi ini di HP Android / Layar Utama"
+            >
+              <Smartphone size={14} />
+              <span>Install di HP</span>
+            </button>
+          )}
+
           <button
             id="open-guide-btn"
             onClick={onOpenGuide}
@@ -379,8 +451,8 @@ export const Lobby: React.FC<LobbyProps> = ({
                     <span className="font-mono text-base font-bold tracking-widest text-emerald-400">
                       {generatedCode}
                     </span>
-                    <span className="text-[10px] uppercase font-bold text-neutral-400 bg-neutral-900 px-2 py-0.5 rounded">
-                      Maks 2 Org
+                    <span className="text-[10px] uppercase font-bold text-emerald-400 bg-emerald-950/80 border border-emerald-500/20 px-2 py-0.5 rounded">
+                      Hingga 20 Org
                     </span>
                   </div>
                   <button
@@ -394,7 +466,7 @@ export const Lobby: React.FC<LobbyProps> = ({
                   </button>
                 </div>
                 <p className="text-[11px] text-neutral-400 mt-1">
-                  Bagikan kode ini kepada teman Anda agar bisa masuk ke chat yang sama.
+                  Bagikan kode ini kepada hingga 20 teman/kolega agar bisa masuk ke obrolan grup yang sama.
                 </p>
               </div>
 
@@ -439,7 +511,7 @@ export const Lobby: React.FC<LobbyProps> = ({
                   className="w-full bg-neutral-950 border border-neutral-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl px-4 py-2.5 text-base font-mono tracking-wider uppercase text-neutral-100 placeholder:text-neutral-500 transition-all outline-none"
                 />
                 <p className="text-[11px] text-neutral-400 mt-1">
-                  Hanya 2 pengguna yang diizinkan berada di dalam satu room.
+                  Kapasitas ruangan dapat menampung hingga 20 pengguna sekaligus.
                 </p>
               </div>
 
@@ -468,9 +540,11 @@ export const Lobby: React.FC<LobbyProps> = ({
           <div className="mt-6 pt-5 border-t border-neutral-800 text-[11px] text-neutral-400 flex items-center justify-between">
             <span className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-ping" />
-              Sinkronisasi pesan instan
+              Sinkronisasi pesan & panggilan instan
             </span>
-            <span className="text-neutral-400 font-medium">Batas: 2 Pengguna</span>
+            <span className="text-emerald-400 font-medium bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/20">
+              Kapasitas: Hingga 20 Pengguna
+            </span>
           </div>
         </div>
       </main>

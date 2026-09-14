@@ -22,6 +22,8 @@ import {
   updateDoc,
   addDoc,
   serverTimestamp,
+  arrayUnion,
+  increment,
   type Unsubscribe
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
@@ -166,22 +168,25 @@ export function generateRoomCode(): string {
 }
 
 /**
- * Create a new 2-user room with User 1 as creator
+ * Create a new multiplayer room supporting up to 20 participants
  */
 export async function createRoomInFirestore(
   code: string,
   roomName: string,
-  creator: { uid: string; name: string; email?: string; avatar?: string }
+  creator: { uid: string; name: string; email?: string; avatar?: string },
+  maxParticipants: number = 20
 ): Promise<string> {
   const formattedCode = code.trim().toUpperCase();
   const roomPath = `rooms/${formattedCode}`;
 
-  const user1Data: RoomParticipant = {
+  const creatorParticipant: RoomParticipant = {
     uid: creator.uid,
     name: creator.name.trim() || 'Pengguna 1',
     email: creator.email || '',
     avatar: creator.avatar || '',
     joinedAt: new Date().toISOString(),
+    online: true,
+    typing: false,
   };
 
   const newRoomData = {
@@ -190,7 +195,14 @@ export async function createRoomInFirestore(
     status: 'waiting',
     createdAt: serverTimestamp(),
     createdBy: creator.uid,
-    user1: user1Data,
+    maxParticipants: Math.min(20, Math.max(2, maxParticipants)),
+    participantCount: 1,
+    participantIds: [creator.uid],
+    participants: {
+      [creator.uid]: creatorParticipant,
+    },
+    // Legacy fallback fields for backward compatibility
+    user1: creatorParticipant,
     user2: null,
     user1Online: true,
     user2Online: false,
@@ -226,7 +238,7 @@ export async function getRoomByCode(code: string): Promise<Room | null> {
 }
 
 /**
- * Join an existing room as User 2 (enforcing max 2 users limit)
+ * Join an existing room (enforcing maximum 20 members limit)
  */
 export async function joinRoomInFirestore(
   code: string,
@@ -244,51 +256,93 @@ export async function joinRoomInFirestore(
     return { success: false, message: 'Room ini sudah ditutup atau tidak aktif lagi.' };
   }
 
-  // If already user 1, simply return success (re-joining own room)
-  if (room.user1.uid === user.uid) {
-    await updateDoc(doc(db, 'rooms', formattedCode), {
-      user1Online: true,
-    }).catch(err => handleFirestoreError(err, OperationType.UPDATE, roomPath));
-    return { success: true, room };
+  const existingIds: string[] = room.participantIds || [];
+  const maxAllowed = room.maxParticipants || 20;
+
+  // Check if user is already a member (re-joining existing room)
+  const isAlreadyMember =
+    existingIds.includes(user.uid) ||
+    room.createdBy === user.uid ||
+    room.user1?.uid === user.uid ||
+    room.user2?.uid === user.uid ||
+    (room.participants && room.participants[user.uid] !== undefined);
+
+  if (isAlreadyMember) {
+    try {
+      const roomRef = doc(db, 'rooms', formattedCode);
+      const updates: any = {
+        [`participants.${user.uid}.online`]: true,
+        [`participants.${user.uid}.name`]: user.name.trim() || room.participants?.[user.uid]?.name || 'Pengguna',
+      };
+      if (room.user1?.uid === user.uid) updates.user1Online = true;
+      if (room.user2?.uid === user.uid) updates.user2Online = true;
+
+      await updateDoc(roomRef, updates);
+      return { success: true, room };
+    } catch (err) {
+      console.warn('Re-join status update error:', err);
+      return { success: true, room };
+    }
   }
 
-  // If already user 2, simply return success (re-joining)
-  if (room.user2 && room.user2.uid === user.uid) {
-    await updateDoc(doc(db, 'rooms', formattedCode), {
-      user2Online: true,
-    }).catch(err => handleFirestoreError(err, OperationType.UPDATE, roomPath));
-    return { success: true, room };
-  }
-
-  // If room already has user 2 and it is someone else: LIMIT 2 USERS EXCEEDED!
-  if (room.user2 && room.user2.uid !== user.uid) {
+  // Not a member yet: check 20-person capacity limit
+  const currentCount = room.participantCount || existingIds.length || (room.user2 ? 2 : 1);
+  if (currentCount >= maxAllowed) {
     return {
       success: false,
-      message: 'Room sudah penuh. Maksimal 2 pengguna.',
+      message: `Room sudah penuh. Maksimal ${maxAllowed} orang.`,
     };
   }
 
-  // Room is waiting for user 2: Join!
-  const user2Data: RoomParticipant = {
+  // Add new participant
+  const newMember: RoomParticipant = {
     uid: user.uid,
-    name: user.name.trim() || 'Pengguna 2',
+    name: user.name.trim() || `Pengguna ${currentCount + 1}`,
     email: user.email || '',
     avatar: user.avatar || '',
     joinedAt: new Date().toISOString(),
+    online: true,
+    typing: false,
   };
 
   try {
     const roomRef = doc(db, 'rooms', formattedCode);
-    await updateDoc(roomRef, {
-      user2: user2Data,
+    const updates: any = {
+      [`participants.${user.uid}`]: newMember,
+      participantIds: arrayUnion(user.uid),
+      participantCount: increment(1),
       status: 'active',
-      user2Online: true,
-      user2Typing: false,
-    });
-    return { success: true, room: { ...room, user2: user2Data, status: 'active', user2Online: true } };
+    };
+
+    // Backward compatibility for legacy user2 slot
+    if (!room.user2) {
+      updates.user2 = newMember;
+      updates.user2Online = true;
+      updates.user2Typing = false;
+    }
+
+    await updateDoc(roomRef, updates);
+    return { success: true, room: { ...room, status: 'active' } };
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, roomPath);
   }
+}
+
+/**
+ * Get sorted list of all participants in a room
+ */
+export function getRoomParticipants(room: Room): RoomParticipant[] {
+  if (room.participants && Object.keys(room.participants).length > 0) {
+    return Object.values(room.participants);
+  }
+  const list: RoomParticipant[] = [];
+  if (room.user1) {
+    list.push({ ...room.user1, online: room.user1Online, typing: room.user1Typing });
+  }
+  if (room.user2) {
+    list.push({ ...room.user2, online: room.user2Online, typing: room.user2Typing });
+  }
+  return list;
 }
 
 /**
@@ -531,18 +585,19 @@ export async function markMessagesAsRead(
  */
 export async function setTypingStatus(
   roomId: string,
-  slot: 'user1' | 'user2',
-  isTyping: boolean
+  userId: string,
+  isTyping: boolean,
+  slot?: 'user1' | 'user2' | null
 ): Promise<void> {
-  const roomPath = `rooms/${roomId}`;
-  const key = slot === 'user1' ? 'user1Typing' : 'user2Typing';
   try {
     const roomRef = doc(db, 'rooms', roomId);
-    await updateDoc(roomRef, {
-      [key]: isTyping,
-    });
+    const updates: any = {
+      [`participants.${userId}.typing`]: isTyping,
+    };
+    if (slot === 'user1') updates.user1Typing = isTyping;
+    if (slot === 'user2') updates.user2Typing = isTyping;
+    await updateDoc(roomRef, updates);
   } catch (error) {
-    // Non-fatal typing update error
     console.debug('Typing update suppressed:', error);
   }
 }
@@ -552,16 +607,18 @@ export async function setTypingStatus(
  */
 export async function setPresenceStatus(
   roomId: string,
-  slot: 'user1' | 'user2',
-  isOnline: boolean
+  userId: string,
+  isOnline: boolean,
+  slot?: 'user1' | 'user2' | null
 ): Promise<void> {
-  const roomPath = `rooms/${roomId}`;
-  const key = slot === 'user1' ? 'user1Online' : 'user2Online';
   try {
     const roomRef = doc(db, 'rooms', roomId);
-    await updateDoc(roomRef, {
-      [key]: isOnline,
-    });
+    const updates: any = {
+      [`participants.${userId}.online`]: isOnline,
+    };
+    if (slot === 'user1') updates.user1Online = isOnline;
+    if (slot === 'user2') updates.user2Online = isOnline;
+    await updateDoc(roomRef, updates);
   } catch (error) {
     console.warn('Presence update error:', error);
   }

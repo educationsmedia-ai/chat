@@ -23,7 +23,7 @@ export const GuideModal: React.FC<GuideModalProps> = ({ isOpen, onClose }) => {
             </div>
             <div>
               <h2 className="text-base font-semibold text-neutral-100 leading-tight">Panduan & Arsitektur Live Chat</h2>
-              <p className="text-xs text-neutral-400">Multiplayer 2 Orang • Cloud Firestore • Real-Time</p>
+              <p className="text-xs text-neutral-400">Grup hingga 20 Orang • Cloud Firestore • Real-Time</p>
             </div>
           </div>
           <button
@@ -41,41 +41,42 @@ export const GuideModal: React.FC<GuideModalProps> = ({ isOpen, onClose }) => {
           {/* Cara Pengujian Multiplayer */}
           <section className="space-y-2.5">
             <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-              <Smartphone size={15} /> 1. Cara Menguji Real-Time 2 Pengguna
+              <Smartphone size={15} /> 1. Cara Menguji Real-Time Hingga 20 Pengguna
             </h3>
             <div className="bg-neutral-800/60 p-3.5 rounded-xl border border-neutral-700/60 space-y-2 text-xs leading-relaxed">
-              <p><strong className="text-neutral-100">Perangkat 1 (Pengguna A):</strong> Buat Room baru, dapatkan kode 6 digit (contoh: <code className="bg-neutral-950 px-1.5 py-0.5 rounded text-emerald-300 font-mono">ABC123</code>).</p>
-              <p><strong className="text-neutral-100">Perangkat 2 (Pengguna B):</strong> Buka link app di tab baru / browser HP / mode Incognito, masukkan nama dan kode room yang sama lalu klik Gabung.</p>
-              <p><strong className="text-neutral-100">Batas 2 Orang:</strong> Jika ada Pengguna C yang mencoba bergabung ke kode tersebut, sistem langsung menolak dengan pesan: <span className="text-amber-400 font-medium">"Room sudah penuh. Maksimal 2 pengguna."</span></p>
+              <p><strong className="text-neutral-100">Pembuat Room:</strong> Buat Room baru, dapatkan kode unik 6 karakter (contoh: <code className="bg-neutral-950 px-1.5 py-0.5 rounded text-emerald-300 font-mono">ABC123</code>).</p>
+              <p><strong className="text-neutral-100">Peserta Lain (Hingga 20 Orang):</strong> Bagikan kode tersebut kepada rekan/teman Anda. Mereka dapat membuka link di HP atau browser lain, memasukkan nama mereka dan kode yang sama lalu klik Gabung.</p>
+              <p><strong className="text-neutral-100">Batas Kapasitas 20 Orang:</strong> Sistem dan aturan Firestore membatasi maksimal 20 orang per room. Jika pengguna ke-21 mencoba bergabung, sistem akan memberikan notifikasi: <span className="text-amber-400 font-medium">"Room sudah penuh. Maksimal 20 orang."</span></p>
             </div>
           </section>
 
           {/* Struktur Database */}
           <section className="space-y-2.5">
             <h3 className="text-xs font-bold uppercase tracking-wider text-cyan-400 flex items-center gap-1.5">
-              <Database size={15} /> 2. Struktur Cloud Firestore
+              <Database size={15} /> 2. Struktur Cloud Firestore (Multi-User)
             </h3>
             <pre className="bg-neutral-950 p-3 rounded-xl border border-neutral-800 text-xs font-mono text-neutral-300 overflow-x-auto">
 {`rooms/
 └── {roomCode} (contoh: "ABC123")
     ├── code: "ABC123"
-    ├── name: "Ruang Diskusi"
+    ├── name: "Ruang Tim Proyek"
     ├── status: "waiting" | "active" | "closed"
-    ├── createdAt: timestamp
-    ├── createdBy: "user_uid_1"
-    ├── user1: { uid, name, email, avatar, joinedAt }
-    ├── user2: { uid, name, email, avatar, joinedAt } | null
-    ├── user1Online: boolean
-    ├── user2Online: boolean
-    ├── user1Typing: boolean
-    ├── user2Typing: boolean
+    ├── maxParticipants: 20
+    ├── participantCount: 5
+    ├── participantIds: ["uid_1", "uid_2", "uid_3", ...]
+    ├── participants: {
+    │     "uid_1": { uid, name, email, avatar, joinedAt, online, typing },
+    │     "uid_2": { uid, name, email, avatar, joinedAt, online, typing },
+    │     ...
+    │   }
     └── messages/ (subcollection)
         └── {messageId}
-            ├── senderId: "user_uid_1"
-            ├── senderName: "Budi"
-            ├── text: "Halo apa kabar?"
+            ├── senderId: "uid_1"
+            ├── senderName: "Budi Pratama"
+            ├── text: "Halo semua, rapat dimulai!"
+            ├── imageUrl?: "data:image/jpeg;base64,..."
             ├── timestamp: timestamp
-            └── read: boolean (true jika lawan bicara sudah melihat)`}
+            └── read: boolean`}
             </pre>
           </section>
 
@@ -85,10 +86,10 @@ export const GuideModal: React.FC<GuideModalProps> = ({ isOpen, onClose }) => {
               <ShieldCheck size={15} /> 3. Keamanan (Firestore Security Rules)
             </h3>
             <ul className="list-disc list-inside space-y-1 text-xs text-neutral-300 pl-1">
-              <li><strong className="text-neutral-200">Strict 2-User Limit:</strong> Aturan database menolak penambahan partisipan jika <code className="text-neutral-200">user2</code> sudah terisi.</li>
-              <li><strong className="text-neutral-200">Anti-Spoofing:</strong> <code className="text-neutral-200">senderId</code> pesan wajib sama persis dengan UID pengguna yang terotentikasi.</li>
-              <li><strong className="text-neutral-200">Private Messages:</strong> Subcollection <code className="text-neutral-200">messages</code> hanya bisa dibaca dan ditulis oleh partisipan terdaftar di room terkait.</li>
-              <li><strong className="text-neutral-200">Length Limiter:</strong> Pesan dibatasi maksimal 2000 karakter untuk mencegah eksploitasi beban database.</li>
+              <li><strong className="text-neutral-200">20-User Strict Limit:</strong> Aturan keamanan database membatasi ukuran array <code className="text-neutral-200">participantIds.size() &lt;= 20</code>.</li>
+              <li><strong className="text-neutral-200">Anti-Spoofing:</strong> <code className="text-neutral-200">senderId</code> pesan wajib sama persis dengan identitas pengguna terdaftar.</li>
+              <li><strong className="text-neutral-200">Room Participants Only:</strong> Hanya anggota terdaftar di <code className="text-neutral-200">participantIds</code> yang memiliki hak akses pesan di room tersebut.</li>
+              <li><strong className="text-neutral-200">Length Limiter:</strong> Pesan dibatasi maksimal 2000 karakter untuk mencegah spam atau eksploitasi beban database.</li>
             </ul>
           </section>
 
@@ -107,10 +108,42 @@ export const GuideModal: React.FC<GuideModalProps> = ({ isOpen, onClose }) => {
             </div>
           </section>
 
+          {/* Menjadikan Aplikasi Android (PWA & APK Capacitor) */}
+          <section className="space-y-2.5">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+              <Smartphone size={15} /> 5. Cara Menjadikan Aplikasi Android (APK & PWA)
+            </h3>
+            <div className="space-y-3 text-xs">
+              <div className="bg-neutral-800/60 p-3 rounded-xl border border-neutral-700/60 space-y-1.5">
+                <span className="font-semibold text-emerald-400">Cara 1: Pasang Instan Tanpa Install APK (PWA)</span>
+                <p className="text-neutral-300 leading-relaxed">
+                  Buka link web aplikasi ini di Google Chrome di HP Android Anda. Tekan menu titik tiga (⋮) di pojok kanan atas Chrome &rarr; pilih <strong className="text-white">"Tambahkan ke Layar Utama" (Add to Home screen)</strong> atau <strong className="text-white">"Pasang Aplikasi"</strong>. Aplikasi akan terpasang di HP seperti aplikasi Android bawaan dengan ikon sendiri dan layar penuh (tanpa bilah URL browser).
+                </p>
+              </div>
+
+              <div className="bg-neutral-800/60 p-3 rounded-xl border border-neutral-700/60 space-y-1.5">
+                <span className="font-semibold text-emerald-400">Cara 2: Ekspor Menjadi File APK Resmi (Capacitor)</span>
+                <p className="text-neutral-300 leading-relaxed">
+                  Anda dapat mengubah project React/Vite ini langsung menjadi project Android Studio menggunakan Capacitor:
+                </p>
+                <div className="bg-neutral-950 p-2.5 rounded-lg border border-neutral-800 font-mono text-[11px] text-emerald-300 space-y-1 overflow-x-auto">
+                  <div>npm install @capacitor/core @capacitor/cli @capacitor/android</div>
+                  <div>npx cap init "Live Chat" "com.livechat.app" --web-dir dist</div>
+                  <div>npm run build</div>
+                  <div>npx cap add android</div>
+                  <div>npx cap open android</div>
+                </div>
+                <p className="text-neutral-400 text-[11px]">
+                  Android Studio akan terbuka otomatis. Dari sana Anda cukup klik menu <strong>Build &rarr; Build Bundle(s) / APK(s) &rarr; Build APK(s)</strong> untuk mendapatkan file <code className="text-neutral-300 font-mono">.apk</code> siap install di semua HP Android.
+                </p>
+              </div>
+            </div>
+          </section>
+
           {/* Deployment Guide */}
           <section className="space-y-2.5">
             <h3 className="text-xs font-bold uppercase tracking-wider text-rose-400 flex items-center gap-1.5">
-              <Server size={15} /> 5. Petunjuk Deployment (Firebase Hosting & Vercel)
+              <Server size={15} /> 6. Petunjuk Deployment (Firebase Hosting & Vercel)
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
               <div className="bg-neutral-800/40 p-3 rounded-xl border border-neutral-800">

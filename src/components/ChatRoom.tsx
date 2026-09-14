@@ -13,7 +13,6 @@ import {
   AlertTriangle,
   Smile,
   Radio,
-  Image as ImageIcon,
   Camera,
   Video as VideoIcon,
   PhoneCall,
@@ -21,6 +20,9 @@ import {
   X,
   Download,
   Loader2,
+  UserCheck,
+  UserX,
+  Plus,
 } from 'lucide-react';
 import {
   subscribeToRoom,
@@ -31,6 +33,7 @@ import {
   setTypingStatus,
   listenToIncomingCalls,
   updateCallStatus,
+  getRoomParticipants,
 } from '../firebase';
 import { playIncomingSound, playOutgoingSound, playRingtone, stopRingtone } from '../sound';
 import { compressImage } from '../utils/image';
@@ -43,6 +46,31 @@ interface ChatRoomProps {
   currentUserId: string;
   currentUserName: string;
   onLeaveRoom: () => void;
+}
+
+// Consistent color palette for 20 distinct members in group chats
+const PARTICIPANT_COLORS = [
+  'text-emerald-400',
+  'text-sky-400',
+  'text-amber-400',
+  'text-purple-400',
+  'text-rose-400',
+  'text-teal-400',
+  'text-indigo-400',
+  'text-orange-400',
+  'text-cyan-400',
+  'text-fuchsia-400',
+  'text-lime-400',
+  'text-pink-400',
+];
+
+function getParticipantColor(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % PARTICIPANT_COLORS.length;
+  return PARTICIPANT_COLORS[index];
 }
 
 export const ChatRoom: React.FC<ChatRoomProps> = ({
@@ -62,6 +90,10 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState<boolean>(false);
 
+  // Group members modal & call selector
+  const [showMembersModal, setShowMembersModal] = useState<boolean>(false);
+  const [showCallSelector, setShowCallSelector] = useState<boolean>(false);
+
   // Photo sending states
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [photoCaption, setPhotoCaption] = useState<string>('');
@@ -71,6 +103,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   // Video Call states
   const [incomingCall, setIncomingCall] = useState<CallSession | null>(null);
   const [activeCallRole, setActiveCallRole] = useState<'caller' | 'receiver' | null>(null);
+  const [callTarget, setCallTarget] = useState<{ uid: string; name: string } | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -78,17 +111,16 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   const isFirstMount = useRef<boolean>(true);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const counterpartSlot: 'user1' | 'user2' = userSlot === 'user1' ? 'user2' : 'user1';
-  const counterpart: RoomParticipant | null =
-    userSlot === 'user1' ? (room.user2 ?? null) : room.user1;
-  const isCounterpartOnline =
-    counterpartSlot === 'user1' ? room.user1Online : !!room.user2Online;
-  const isCounterpartTyping =
-    counterpartSlot === 'user1' ? !!room.user1Typing : !!room.user2Typing;
+  // Derive group members
+  const participants = getRoomParticipants(room);
+  const otherParticipants = participants.filter((p) => p.uid !== currentUserId);
+  const onlineCount = participants.filter((p) => p.online !== false).length;
+  const typingUsers = otherParticipants.filter((p) => p.typing);
+  const maxCapacity = room.maxParticipants || 20;
 
   // 1. Subscribe to Room Metadata changes
   useEffect(() => {
-    setPresenceStatus(room.id, userSlot, true);
+    setPresenceStatus(room.id, currentUserId, true, userSlot);
 
     const unsubscribeRoom = subscribeToRoom(
       room.id,
@@ -106,18 +138,18 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     );
 
     const handleBeforeUnload = () => {
-      setPresenceStatus(room.id, userSlot, false);
-      setTypingStatus(room.id, userSlot, false);
+      setPresenceStatus(room.id, currentUserId, false, userSlot);
+      setTypingStatus(room.id, currentUserId, false, userSlot);
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
 
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
-      setPresenceStatus(room.id, userSlot, false);
-      setTypingStatus(room.id, userSlot, false);
+      setPresenceStatus(room.id, currentUserId, false, userSlot);
+      setTypingStatus(room.id, currentUserId, false, userSlot);
       unsubscribeRoom();
     };
-  }, [room.id, userSlot]);
+  }, [room.id, currentUserId, userSlot]);
 
   // 2. Subscribe to Real-Time Messages
   useEffect(() => {
@@ -142,12 +174,10 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       }
     );
 
-    return () => {
-      unsubscribeMessages();
-    };
+    return () => unsubscribeMessages();
   }, [room.id, currentUserId, soundEnabled]);
 
-  // 3. Subscribe to Incoming Video Calls
+  // 3. Listen to Incoming WebRTC Video Calls
   useEffect(() => {
     const unsubscribeCalls = listenToIncomingCalls(room.id, currentUserId, (call) => {
       if (call) {
@@ -168,7 +198,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   // 4. Auto scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isCounterpartTyping]);
+  }, [messages, typingUsers.length]);
 
   // 5. Handle Typing Indicator sync
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -176,14 +206,14 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     setInputText(val);
 
     if (val.trim().length > 0) {
-      setTypingStatus(room.id, userSlot, true);
+      setTypingStatus(room.id, currentUserId, true, userSlot);
 
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = setTimeout(() => {
-        setTypingStatus(room.id, userSlot, false);
+        setTypingStatus(room.id, currentUserId, false, userSlot);
       }, 2000);
     } else {
-      setTypingStatus(room.id, userSlot, false);
+      setTypingStatus(room.id, currentUserId, false, userSlot);
     }
   };
 
@@ -201,7 +231,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     try {
       setIsSending(true);
       setInputText('');
-      setTypingStatus(room.id, userSlot, false);
+      setTypingStatus(room.id, currentUserId, false, userSlot);
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
 
       if (soundEnabled) {
@@ -244,7 +274,6 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       setErrorMessage('Gagal memproses gambar. Coba gambar lain.');
     } finally {
       setIsCompressingPhoto(false);
-      // Reset input value so same photo can be re-selected if cancelled
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
@@ -277,18 +306,35 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     }
   };
 
-  // 9. Video Call Actions
-  const handleStartVideoCall = () => {
-    if (!counterpart) {
-      setErrorMessage('Menunggu lawan bicara bergabung sebelum memulai Video Call.');
+  // 9. Video Call Trigger
+  const handleOpenCallModal = () => {
+    if (otherParticipants.length === 0) {
+      setErrorMessage('Belum ada anggota lain yang bergabung ke room ini.');
       return;
     }
+
+    if (otherParticipants.length === 1) {
+      // Direct call if only 1 counterpart
+      startCallWithUser(otherParticipants[0]);
+    } else {
+      // Multiple participants: show selector
+      setShowCallSelector(true);
+    }
+  };
+
+  const startCallWithUser = (target: RoomParticipant) => {
+    setShowCallSelector(false);
+    setShowMembersModal(false);
+    setCallTarget({ uid: target.uid, name: target.name });
     setActiveCallRole('caller');
   };
 
   const handleAcceptIncomingCall = () => {
     stopRingtone();
-    setActiveCallRole('receiver');
+    if (incomingCall) {
+      setCallTarget({ uid: incomingCall.callerId, name: incomingCall.callerName });
+      setActiveCallRole('receiver');
+    }
   };
 
   const handleRejectIncomingCall = async () => {
@@ -312,11 +358,11 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
   // 11. Share Room Code
   const handleShareRoom = async () => {
-    const shareText = `Gabung ke Live Chat saya.\nKode Room: ${room.code}\nLink: ${window.location.origin}`;
+    const shareText = `Gabung ke Live Chat Grup (${participants.length}/${maxCapacity} Anggota).\nKode Room: ${room.code}\nLink: ${window.location.origin}`;
     if (navigator.share) {
       try {
         await navigator.share({
-          title: 'Undangan Live Chat 2 Orang',
+          title: 'Undangan Live Chat Grup (Hingga 20 Orang)',
           text: shareText,
           url: window.location.origin,
         });
@@ -335,8 +381,8 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   // 12. Leave Room
   const handleLeave = () => {
     if (window.confirm('Apakah Anda yakin ingin keluar dari room chat ini?')) {
-      setPresenceStatus(room.id, userSlot, false);
-      setTypingStatus(room.id, userSlot, false);
+      setPresenceStatus(room.id, currentUserId, false, userSlot);
+      setTypingStatus(room.id, currentUserId, false, userSlot);
       onLeaveRoom();
     }
   };
@@ -358,6 +404,18 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
   const quickEmojis = ['👍', '❤️', '😂', '👋', '🎉', '🔥', '🙏', '💯'];
 
+  // Render typing notification text
+  const renderTypingText = () => {
+    if (typingUsers.length === 0) return null;
+    if (typingUsers.length === 1) {
+      return `${typingUsers[0].name} sedang mengetik...`;
+    }
+    if (typingUsers.length === 2) {
+      return `${typingUsers[0].name} & ${typingUsers[1].name} sedang mengetik...`;
+    }
+    return `${typingUsers[0].name} dan ${typingUsers.length - 1} lainnya sedang mengetik...`;
+  };
+
   return (
     <div className="h-[100dvh] w-full bg-neutral-950 text-neutral-100 flex flex-col font-sans antialiased overflow-hidden select-text">
       {/* Top Navigation Header */}
@@ -366,7 +424,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 p-0.5 shadow-sm flex items-center justify-center shrink-0">
             <div className="w-full h-full bg-neutral-950 rounded-[10px] flex items-center justify-center text-emerald-400 font-bold text-xs">
-              2P
+              <Users size={16} />
             </div>
           </div>
 
@@ -375,68 +433,75 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               <h2 className="text-sm sm:text-base font-bold text-white truncate leading-tight">
                 {room.name || `Room ${room.code}`}
               </h2>
-              <span className="shrink-0 font-mono text-xs font-bold px-2 py-0.5 rounded-md bg-neutral-800 border border-neutral-700 text-emerald-400">
-                {room.code}
-              </span>
+              <button
+                onClick={handleCopyCode}
+                className="shrink-0 font-mono text-xs font-bold px-2 py-0.5 rounded-md bg-neutral-800 border border-neutral-700 text-emerald-400 hover:border-emerald-500/50 transition-colors flex items-center gap-1 cursor-pointer"
+                title="Klik untuk salin kode"
+              >
+                <span>{room.code}</span>
+                {copied ? <Check size={11} className="text-emerald-300" /> : <Copy size={11} />}
+              </button>
             </div>
 
-            {/* Online Status Label */}
+            {/* Online Status and Member Count */}
             <div className="flex items-center gap-2 text-xs text-neutral-400 mt-0.5">
-              {!counterpart ? (
-                <span className="flex items-center gap-1.5 text-amber-400 font-medium">
-                  <span className="w-2 h-2 rounded-full bg-amber-400 inline-block animate-pulse" />
-                  Menunggu pengguna 2...
+              <button
+                onClick={() => setShowMembersModal(true)}
+                className="flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer"
+                title="Klik untuk melihat daftar anggota"
+              >
+                <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse" />
+                <span className="font-medium">
+                  {onlineCount} Online • {participants.length}/{maxCapacity} Anggota
                 </span>
-              ) : isCounterpartOnline ? (
-                <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-ping" />
-                  {counterpart.name} • 🟢 Online
-                </span>
-              ) : (
-                <span className="flex items-center gap-1.5 text-neutral-400">
-                  <span className="w-2 h-2 rounded-full bg-neutral-600 inline-block" />
-                  {counterpart.name} • ⚪ Offline
-                </span>
-              )}
+              </button>
             </div>
           </div>
         </div>
 
-        {/* Right Action Controls: Video Call, Copy, Share, Sound, Leave */}
+        {/* Right Action Controls: Video Call, Members List, Sound, Leave */}
         <div className="flex items-center gap-1.5 shrink-0">
+          {/* Members Drawer Trigger */}
+          <button
+            id="view-members-btn"
+            onClick={() => setShowMembersModal(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-medium border border-neutral-700/60 transition-colors cursor-pointer"
+            title="Lihat Daftar Anggota (Maksimal 20 Orang)"
+          >
+            <Users size={14} className="text-emerald-400" />
+            <span className="hidden md:inline">
+              Anggota ({participants.length}/{maxCapacity})
+            </span>
+          </button>
+
           {/* Video Call Trigger Button */}
           <button
             id="start-video-call-btn"
-            onClick={handleStartVideoCall}
-            disabled={!counterpart}
+            onClick={handleOpenCallModal}
+            disabled={otherParticipants.length === 0}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-              counterpart
+              otherParticipants.length > 0
                 ? 'bg-emerald-500 hover:bg-emerald-400 text-neutral-950 shadow-md shadow-emerald-500/20'
                 : 'bg-neutral-800 text-neutral-500 cursor-not-allowed border border-neutral-700/50'
             }`}
-            title={counterpart ? 'Mulai Video Call' : 'Tunggu pengguna kedua untuk video call'}
+            title={
+              otherParticipants.length > 0
+                ? 'Mulai Panggilan Video'
+                : 'Menunggu anggota lain bergabung untuk video call'
+            }
           >
             <VideoIcon size={14} />
-            <span className="hidden sm:inline">Video Call</span>
-          </button>
-
-          <button
-            id="copy-code-header-btn"
-            onClick={handleCopyCode}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-medium border border-neutral-700/60 transition-colors cursor-pointer"
-            title="Salin Kode Room"
-          >
-            {copied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
-            <span className="hidden md:inline">{copied ? 'Tersalin' : 'Salin'}</span>
+            <span className="hidden sm:inline">Panggilan</span>
           </button>
 
           <button
             id="share-code-header-btn"
             onClick={handleShareRoom}
-            className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-medium border border-neutral-700/60 transition-colors cursor-pointer"
-            title="Bagikan Kode Room"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-medium border border-neutral-700/60 transition-colors cursor-pointer"
+            title="Undang Teman / Bagikan Kode"
           >
             <Share2 size={14} />
+            <span className="hidden lg:inline">{shared ? 'Dibagikan' : 'Undang'}</span>
           </button>
 
           <button
@@ -462,34 +527,26 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
       {/* Participants Subheader Status Banner */}
       <div className="bg-neutral-900/60 border-b border-neutral-800/80 px-4 py-1.5 flex items-center justify-between text-[11px] text-neutral-400 shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-3 overflow-x-auto">
+          <div className="flex items-center gap-1.5 shrink-0">
             <span className="text-neutral-400">Anda:</span>
             <span className="font-semibold text-neutral-200">{currentUserName}</span>
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
           </div>
-          <span className="text-neutral-400">•</span>
-          <div className="flex items-center gap-1.5">
-            <span className="text-neutral-400">Lawan Bicara:</span>
-            {counterpart ? (
-              <>
-                <span className="font-semibold text-neutral-200">{counterpart.name}</span>
-                <span
-                  className={`w-1.5 h-1.5 rounded-full inline-block ${
-                    isCounterpartOnline ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-600'
-                  }`}
-                />
-              </>
-            ) : (
-              <span className="text-amber-400 font-medium">Belum ada (Menunggu)</span>
-            )}
+          <span className="text-neutral-400 shrink-0">•</span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-neutral-400">Kapasitas:</span>
+            <span className="text-emerald-400 font-semibold">{participants.length} dari {maxCapacity} Terisi</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-1 text-[11px] text-neutral-400">
-          <Users size={12} />
-          <span>{counterpart ? '2/2 Terisi' : '1/2 Menunggu'}</span>
-        </div>
+        <button
+          onClick={() => setShowMembersModal(true)}
+          className="text-emerald-400 hover:text-emerald-300 text-[11px] font-medium flex items-center gap-1 shrink-0 cursor-pointer"
+        >
+          <span>Daftar Peserta</span>
+          <span>→</span>
+        </button>
       </div>
 
       {/* Error Alert Bar if any */}
@@ -549,16 +606,16 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
       {/* Chat Messages Conversation Body */}
       <main className="flex-1 overflow-y-auto p-4 space-y-3 bg-neutral-950">
-        {/* Waiting for Second User Screen */}
-        {!counterpart && (
+        {/* Waiting for other members banner */}
+        {participants.length <= 1 && (
           <div className="max-w-md mx-auto my-8 p-6 bg-neutral-900/80 border border-neutral-800 rounded-2xl text-center space-y-4 shadow-xl">
-            <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center">
-              <Clock size={28} className="animate-spin duration-3000" />
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center">
+              <Users size={28} className="animate-pulse" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-neutral-100">Menunggu pengguna kedua...</h3>
-              <p className="text-xs text-neutral-400 mt-1 max-w-xs mx-auto">
-                Beri tahu teman Anda untuk bergabung ke ruang chat ini menggunakan kode di bawah:
+              <h3 className="text-base font-bold text-neutral-100">Menunggu peserta lain bergabung...</h3>
+              <p className="text-xs text-neutral-400 mt-1 max-w-sm mx-auto">
+                Ruang obrolan ini dapat menampung hingga <strong>20 orang</strong> sekaligus. Bagikan kode ruangan di bawah ini kepada teman atau rekan kerja Anda:
               </p>
             </div>
 
@@ -576,23 +633,33 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               </button>
             </div>
 
+            <div className="flex items-center justify-center gap-2">
+              <button
+                onClick={handleShareRoom}
+                className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 text-xs font-bold transition-all shadow-md shadow-emerald-500/20 flex items-center gap-1.5 cursor-pointer"
+              >
+                <Share2 size={14} />
+                <span>Bagikan Undangan Room</span>
+              </button>
+            </div>
+
             <div className="text-[11px] text-neutral-400">
-              💡 Buka tab browser baru atau HP lain dan masukkan kode di atas untuk langsung menguji chat, foto, dan video call.
+              💡 Buka tab browser baru atau HP lain dan masukkan kode di atas untuk langsung menguji chat 20 orang, foto, dan panggilan video.
             </div>
           </div>
         )}
 
-        {/* Empty state when counterpart joined but no messages yet */}
-        {counterpart && messages.length === 0 && (
+        {/* Empty state when multiple members joined but no messages yet */}
+        {participants.length > 1 && messages.length === 0 && (
           <div className="text-center py-12 space-y-2">
             <div className="w-12 h-12 mx-auto rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
               <Radio size={22} className="animate-pulse" />
             </div>
             <p className="text-sm font-semibold text-neutral-200">
-              Kedua pengguna telah terhubung!
+              {participants.length} anggota telah terhubung di room!
             </p>
             <p className="text-xs text-neutral-400">
-              Kirim pesan atau foto pertama Anda. Percakapan ini tersinkronisasi real-time.
+              Mulai percakapan dengan mengirimkan pesan atau foto pertama Anda.
             </p>
           </div>
         )}
@@ -600,17 +667,20 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         {/* List of Messages */}
         {messages.map((msg) => {
           const isOwn = msg.senderId === currentUserId;
+          const senderColor = getParticipantColor(msg.senderId);
 
           return (
             <div
               key={msg.id}
               className={`flex flex-col ${isOwn ? 'items-end' : 'items-start'} transition-opacity duration-150`}
             >
-              {/* Sender Name above message bubble for counterpart */}
+              {/* Sender Name above message bubble for other participants */}
               {!isOwn && (
-                <span className="text-[11px] font-medium text-emerald-400/90 mb-1 ml-1">
-                  {msg.senderName}
-                </span>
+                <div className="flex items-center gap-1.5 mb-1 ml-1">
+                  <span className={`text-[11px] font-bold ${senderColor}`}>
+                    {msg.senderName}
+                  </span>
+                </div>
               )}
 
               {/* Message Bubble (Supports Photos & Text) */}
@@ -665,11 +735,10 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
           );
         })}
 
-        {/* Typing indicator */}
-        {isCounterpartTyping && counterpart && (
+        {/* Multi-user Typing indicator */}
+        {typingUsers.length > 0 && (
           <div className="flex items-center gap-2 text-xs text-neutral-400 animate-in fade-in duration-200 pt-1">
-            <span className="font-medium text-emerald-400">{counterpart.name}</span>
-            <span>sedang mengetik</span>
+            <span className="font-medium text-emerald-400">{renderTypingText()}</span>
             <span className="inline-flex gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '0ms' }} />
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '150ms' }} />
@@ -748,9 +817,8 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         </div>
       )}
 
-      {/* Chat Bottom Input Bar (Mobile-safe pinned footer) */}
+      {/* Chat Bottom Input Bar */}
       <footer className="bg-neutral-900 border-t border-neutral-800 p-2.5 sm:p-3 shrink-0">
-        {/* Hidden File Input for Photos */}
         <input
           type="file"
           ref={fileInputRef}
@@ -858,19 +926,183 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         </div>
       )}
 
+      {/* Members List Modal (Supports up to 20 People) */}
+      {showMembersModal && (
+        <div className="fixed inset-0 z-40 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
+            <div className="p-4 border-b border-neutral-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+                  <Users size={16} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">
+                    Anggota Room ({participants.length}/{maxCapacity})
+                  </h3>
+                  <p className="text-[11px] text-neutral-400">
+                    {onlineCount} anggota sedang online
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowMembersModal(false)}
+                className="p-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto space-y-2 flex-1">
+              {participants.map((participant) => {
+                const isSelf = participant.uid === currentUserId;
+                const isCreator = participant.uid === room.createdBy;
+                const isOnline = participant.online !== false;
+                const color = getParticipantColor(participant.uid);
+
+                return (
+                  <div
+                    key={participant.uid}
+                    className="p-3 rounded-xl bg-neutral-950 border border-neutral-800/80 flex items-center justify-between gap-3"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="relative shrink-0">
+                        <div className="w-9 h-9 rounded-xl bg-neutral-800 border border-neutral-700 flex items-center justify-center font-bold text-xs text-neutral-200">
+                          {participant.name.charAt(0).toUpperCase()}
+                        </div>
+                        <span
+                          className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-neutral-950 ${
+                            isOnline ? 'bg-emerald-500' : 'bg-neutral-600'
+                          }`}
+                        />
+                      </div>
+
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={`text-xs font-bold truncate ${color}`}>
+                            {participant.name}
+                          </span>
+                          {isSelf && (
+                            <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-medium">
+                              Anda
+                            </span>
+                          )}
+                          {isCreator && (
+                            <span className="text-[10px] bg-neutral-800 text-neutral-300 px-1.5 py-0.5 rounded border border-neutral-700">
+                              Host
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[11px] text-neutral-400 block">
+                          {isOnline ? '🟢 Online' : '⚪ Offline'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {!isSelf && isOnline && (
+                      <button
+                        onClick={() => startCallWithUser(participant)}
+                        className="p-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 transition-colors cursor-pointer shrink-0"
+                        title={`Panggil video ${participant.name}`}
+                      >
+                        <VideoIcon size={14} />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="p-3 bg-neutral-950 border-t border-neutral-800 flex items-center justify-between text-xs">
+              <span className="text-neutral-400 font-mono">Kode: {room.code}</span>
+              <button
+                onClick={handleShareRoom}
+                className="flex items-center gap-1 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold rounded-lg text-xs cursor-pointer transition-colors"
+              >
+                <Plus size={13} />
+                <span>Undang Teman</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Video Call Member Selector Modal */}
+      {showCallSelector && (
+        <div className="fixed inset-0 z-40 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl flex flex-col">
+            <div className="p-4 border-b border-neutral-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <VideoIcon size={18} className="text-emerald-400" />
+                <h3 className="text-sm font-bold text-white">Pilih Anggota untuk Video Call</h3>
+              </div>
+              <button
+                onClick={() => setShowCallSelector(false)}
+                className="p-1 rounded-lg hover:bg-neutral-800 text-neutral-400 hover:text-white cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-3 space-y-2 max-h-72 overflow-y-auto">
+              {otherParticipants.length === 0 ? (
+                <p className="text-xs text-neutral-400 text-center py-4">
+                  Tidak ada anggota lain di room.
+                </p>
+              ) : (
+                otherParticipants.map((member) => {
+                  const isOnline = member.online !== false;
+                  return (
+                    <div
+                      key={member.uid}
+                      className="p-2.5 rounded-xl bg-neutral-950 border border-neutral-800 flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-neutral-800 flex items-center justify-center font-bold text-xs text-neutral-200">
+                          {member.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold text-neutral-100">{member.name}</p>
+                          <p className="text-[10px] text-neutral-400">
+                            {isOnline ? '🟢 Online' : '⚪ Offline'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => startCallWithUser(member)}
+                        disabled={!isOnline}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer ${
+                          isOnline
+                            ? 'bg-emerald-500 hover:bg-emerald-400 text-neutral-950 shadow-md shadow-emerald-500/20'
+                            : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
+                        }`}
+                      >
+                        <VideoIcon size={12} />
+                        <span>Panggil</span>
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Active Video Call Modal */}
-      {activeCallRole && counterpart && (
+      {activeCallRole && callTarget && (
         <VideoCallModal
           roomId={room.id}
           currentUserId={currentUserId}
           currentUserName={currentUserName}
-          counterpartId={counterpart.uid}
-          counterpartName={counterpart.name}
+          counterpartId={callTarget.uid}
+          counterpartName={callTarget.name}
           role={activeCallRole}
           incomingCallSession={incomingCall}
           onClose={() => {
             setActiveCallRole(null);
             setIncomingCall(null);
+            setCallTarget(null);
           }}
         />
       )}

@@ -2,7 +2,7 @@
   "entities": {
     "Room": {
       "title": "Room",
-      "description": "Two-person multiplayer real-time chat room",
+      "description": "Multiplayer real-time chat room supporting up to 20 participants",
       "type": "object",
       "properties": {
         "code": {
@@ -32,32 +32,29 @@
           "description": "User ID of creator",
           "maxLength": 128
         },
-        "user1": {
+        "maxParticipants": {
+          "type": "integer",
+          "description": "Maximum allowed participants in room (20)",
+          "maximum": 20,
+          "minimum": 2
+        },
+        "participantCount": {
+          "type": "integer",
+          "description": "Current number of joined participants",
+          "maximum": 20,
+          "minimum": 1
+        },
+        "participantIds": {
+          "type": "array",
+          "description": "List of user IDs of participants currently in the room",
+          "items": { "type": "string" }
+        },
+        "participants": {
           "type": "object",
-          "description": "Information about the first participant"
-        },
-        "user2": {
-          "type": "object",
-          "description": "Information about the second participant or null if waiting"
-        },
-        "user1Online": {
-          "type": "boolean",
-          "description": "Presence flag for user 1"
-        },
-        "user2Online": {
-          "type": "boolean",
-          "description": "Presence flag for user 2"
-        },
-        "user1Typing": {
-          "type": "boolean",
-          "description": "Typing indicator for user 1"
-        },
-        "user2Typing": {
-          "type": "boolean",
-          "description": "Typing indicator for user 2"
+          "description": "Map of participant details keyed by user ID"
         }
       },
-      "required": ["code", "status", "createdBy", "user1", "user1Online"]
+      "required": ["code", "status", "createdBy", "maxParticipants", "participantCount", "participantIds", "participants"]
     },
     "Message": {
       "title": "Message",

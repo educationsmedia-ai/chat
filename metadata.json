@@ -1,6 +1,6 @@
 {
   "name": "Live Chat",
-  "description": "Aplikasi web Live Chat real-time multiplayer 2 orang untuk HP dan desktop dengan fitur kirim foto, video call, kode room unik, dan sinkronisasi pesan instan.",
+  "description": "Aplikasi web Live Chat grup real-time untuk hingga 20 orang dengan fitur obrolan instan, kirim foto, panggilan video WebRTC, dan kode room unik.",
   "requestFramePermissions": ["camera", "microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -4,11 +4,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Live Chat</title>
-    <meta name="description" content="Aplikasi web Live Chat real-time multiplayer 2 orang untuk HP dan desktop dengan kode room unik dan sinkronisasi pesan instan." />
+    <meta name="description" content="Aplikasi web Live Chat grup real-time untuk hingga 20 orang dengan fitur obrolan instan, kirim foto, panggilan video WebRTC, dan kode room unik." />
     <meta property="og:title" content="Live Chat" />
-    <meta property="og:description" content="Aplikasi web Live Chat real-time multiplayer 2 orang untuk HP dan desktop dengan kode room unik dan sinkronisasi pesan instan." />
+    <meta property="og:description" content="Aplikasi web Live Chat grup real-time untuk hingga 20 orang dengan fitur obrolan instan, kirim foto, panggilan video WebRTC, dan kode room unik." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#10b981" />
+    <link rel="icon" type="image/svg+xml" href="/icon-192.svg" />
+    <link rel="apple-touch-icon" href="/icon-192.svg" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(function() {});
+        });
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

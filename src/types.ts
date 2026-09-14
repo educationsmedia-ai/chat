@@ -8,6 +8,8 @@ export interface RoomParticipant {
   avatar?: string;
   email?: string;
   joinedAt?: string;
+  online?: boolean;
+  typing?: boolean;
 }
 
 export type RoomStatus = 'waiting' | 'active' | 'closed';
@@ -19,9 +21,14 @@ export interface Room {
   status: RoomStatus;
   createdAt: any;
   createdBy: string;
-  user1: RoomParticipant;
+  maxParticipants: number;
+  participantCount: number;
+  participantIds: string[];
+  participants: Record<string, RoomParticipant>;
+  // Legacy compatibility fields
+  user1?: RoomParticipant;
   user2?: RoomParticipant | null;
-  user1Online: boolean;
+  user1Online?: boolean;
   user2Online?: boolean;
   user1Typing?: boolean;
   user2Typing?: boolean;

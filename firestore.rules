@@ -20,14 +20,15 @@ service cloud.firestore {
       return resource.data;
     }
 
-    // Room Entity Validation Helper
+    // Room Entity Validation Helper (Supports up to 20 participants)
     function isValidRoom(data) {
-      return data.keys().hasAll(['code', 'status', 'createdBy', 'user1', 'user1Online']) &&
+      return data.keys().hasAll(['code', 'status', 'createdBy']) &&
         data.code is string && data.code.size() >= 4 && data.code.size() <= 10 && data.code.matches('^[A-Z0-9]+$') &&
         data.status is string && (data.status == 'waiting' || data.status == 'active' || data.status == 'closed') &&
         data.createdBy is string && data.createdBy.size() <= 128 &&
-        data.user1 is map && data.user1.uid is string && data.user1.uid == data.createdBy &&
-        data.user1Online is bool;
+        (!('participantCount' in data) || (data.participantCount is int && data.participantCount >= 1 && data.participantCount <= 20)) &&
+        (!('participantIds' in data) || (data.participantIds is list && data.participantIds.size() >= 1 && data.participantIds.size() <= 20)) &&
+        (!('maxParticipants' in data) || (data.maxParticipants is int && data.maxParticipants <= 20));
     }
 
     // Message Entity Validation Helper (Supports Text & Compressed Photos)
@@ -51,31 +52,23 @@ service cloud.firestore {
       // Create: user creates room with valid structure
       allow create: if isValidId(roomId) &&
         isValidRoom(incoming()) &&
-        incoming().status == 'waiting';
+        (incoming().status == 'waiting' || incoming().status == 'active');
 
       // Updates partitioned by actions
       allow update: if isValidId(roomId) && (
-        // Action 1: User 2 joins a waiting room (enforces 2 users max limit)
+        // Action 1: New participant joins or re-joins (strictly enforces maximum 20 members limit)
+        (
+          incoming().status in ['waiting', 'active', 'closed'] &&
+          (!('participantCount' in incoming()) || (incoming().participantCount is int && incoming().participantCount <= 20)) &&
+          (!('participantIds' in incoming()) || (incoming().participantIds is list && incoming().participantIds.size() <= 20)) &&
+          (!('maxParticipants' in incoming()) || (incoming().maxParticipants is int && incoming().maxParticipants <= 20))
+        ) ||
+        // Action 2: Legacy 2-user support
         (
           existing().status == 'waiting' &&
           existing().user2 == null &&
           incoming().user2 != null &&
-          incoming().user2.uid != existing().user1.uid &&
-          incoming().status == 'active' &&
-          incoming().diff(existing()).affectedKeys().hasOnly(['user2', 'status', 'user2Online', 'user2Typing'])
-        ) ||
-        // Action 2: User 1 updates presence or typing
-        (
-          incoming().diff(existing()).affectedKeys().hasOnly(['user1Online', 'user1Typing'])
-        ) ||
-        // Action 3: User 2 updates presence or typing
-        (
-          incoming().diff(existing()).affectedKeys().hasOnly(['user2Online', 'user2Typing'])
-        ) ||
-        // Action 4: Close room
-        (
-          incoming().status == 'closed' &&
-          incoming().diff(existing()).affectedKeys().hasOnly(['status'])
+          incoming().status == 'active'
         )
       );
 
