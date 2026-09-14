@@ -356,13 +356,13 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     }
   };
 
-  // 11. Share Room Code
+  // 11. Share App Link
   const handleShareRoom = async () => {
-    const shareText = `Gabung ke Live Chat Grup (${participants.length}/${maxCapacity} Anggota).\nKode Room: ${room.code}\nLink: ${window.location.origin}`;
+    const shareText = `Gabung ke Live Chat (${participants.length}/${maxCapacity} Anggota online).\nBuka link untuk langsung mengobrol tanpa perlu kode room:\n${window.location.origin}`;
     if (navigator.share) {
       try {
         await navigator.share({
-          title: 'Undangan Live Chat Grup (Hingga 20 Orang)',
+          title: 'Live Chat (Langsung Masuk)',
           text: shareText,
           url: window.location.origin,
         });
@@ -372,7 +372,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         // user aborted share
       }
     } else {
-      await navigator.clipboard.writeText(shareText);
+      await navigator.clipboard.writeText(window.location.origin);
       setShared(true);
       setTimeout(() => setShared(false), 2000);
     }
@@ -431,16 +431,11 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h2 className="text-sm sm:text-base font-bold text-white truncate leading-tight">
-                {room.name || `Room ${room.code}`}
+                {room.name || 'Live Chat'}
               </h2>
-              <button
-                onClick={handleCopyCode}
-                className="shrink-0 font-mono text-xs font-bold px-2 py-0.5 rounded-md bg-neutral-800 border border-neutral-700 text-emerald-400 hover:border-emerald-500/50 transition-colors flex items-center gap-1 cursor-pointer"
-                title="Klik untuk salin kode"
-              >
-                <span>{room.code}</span>
-                {copied ? <Check size={11} className="text-emerald-300" /> : <Copy size={11} />}
-              </button>
+              <span className="shrink-0 text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                Publik
+              </span>
             </div>
 
             {/* Online Status and Member Count */}
@@ -613,44 +608,25 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               <Users size={28} className="animate-pulse" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-neutral-100">
-                {room.code === 'GLOBAL'
-                  ? 'Anda telah terhubung di Ruang Obrolan Utama!'
-                  : 'Menunggu peserta lain bergabung...'}
-              </h3>
+              <h3 className="text-base font-bold text-neutral-100">Menunggu peserta lain bergabung...</h3>
               <p className="text-xs text-neutral-400 mt-1 max-w-sm mx-auto">
-                {room.code === 'GLOBAL'
-                  ? 'Siapa pun yang membuka aplikasi ini akan otomatis masuk ke ruangan ini. Anda bisa langsung mengetik pesan atau membagikan link ke teman-teman Anda.'
-                  : 'Ruang obrolan ini dapat menampung hingga 20 orang sekaligus. Bagikan kode ruangan di bawah ini kepada teman atau rekan kerja Anda:'}
+                Ruang obrolan ini dapat menampung hingga <strong>20 orang</strong> sekaligus. Teman Anda bisa langsung masuk tanpa memerlukan kode room.
               </p>
             </div>
 
-            <div className="p-3 bg-neutral-950 border border-neutral-800 rounded-xl flex items-center justify-between max-w-xs mx-auto">
-              <span className="font-mono text-xl font-extrabold tracking-widest text-emerald-400">
-                {room.code}
-              </span>
+            <div className="flex items-center justify-center gap-2 pt-2">
               <button
-                id="copy-waiting-code-btn"
-                onClick={handleCopyCode}
-                className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs rounded-lg font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
-              >
-                {copied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
-                <span>{copied ? 'Disalin' : 'Salin'}</span>
-              </button>
-            </div>
-
-            <div className="flex items-center justify-center gap-2">
-              <button
+                id="share-app-waiting-btn"
                 onClick={handleShareRoom}
-                className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 text-xs font-bold transition-all shadow-md shadow-emerald-500/20 flex items-center gap-1.5 cursor-pointer"
+                className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-neutral-950 text-xs font-bold transition-all shadow-md shadow-emerald-500/20 flex items-center gap-2 cursor-pointer"
               >
                 <Share2 size={14} />
-                <span>Bagikan Undangan Room</span>
+                <span>{shared ? 'Link Telah Disalin!' : 'Bagikan Link Chat ke Teman'}</span>
               </button>
             </div>
 
             <div className="text-[11px] text-neutral-400">
-              💡 Buka aplikasi di HP atau tab browser lain untuk langsung melihat pesan tersinkronisasi secara real-time.
+              💡 Buka tab browser baru atau HP lain untuk langsung menguji obrolan bersama, kirim foto, dan panggilan video tanpa kode room.
             </div>
           </div>
         )}
@@ -1019,13 +995,13 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             </div>
 
             <div className="p-3 bg-neutral-950 border-t border-neutral-800 flex items-center justify-between text-xs">
-              <span className="text-neutral-400 font-mono">Kode: {room.code}</span>
+              <span className="text-neutral-400">Kapasitas: Hingga 20 Orang</span>
               <button
                 onClick={handleShareRoom}
                 className="flex items-center gap-1 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold rounded-lg text-xs cursor-pointer transition-colors"
               >
-                <Plus size={13} />
-                <span>Undang Teman</span>
+                <Share2 size={13} />
+                <span>{shared ? 'Link Disalin' : 'Bagikan Link'}</span>
               </button>
             </div>
           </div>

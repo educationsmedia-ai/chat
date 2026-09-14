@@ -167,6 +167,8 @@ export function generateRoomCode(): string {
   return result;
 }
 
+export const PUBLIC_ROOM_ID = 'CHAT';
+
 /**
  * Create a new multiplayer room supporting up to 20 participants
  */
@@ -192,7 +194,7 @@ export async function createRoomInFirestore(
   const newRoomData = {
     code: formattedCode,
     name: roomName.trim() || `Ruang ${formattedCode}`,
-    status: 'waiting',
+    status: 'active',
     createdAt: serverTimestamp(),
     createdBy: creator.uid,
     maxParticipants: Math.min(20, Math.max(2, maxParticipants)),
@@ -220,6 +222,29 @@ export async function createRoomInFirestore(
 }
 
 /**
+ * Enter or automatically create the public chat room without requiring any room code from the user.
+ */
+export async function enterPublicRoom(
+  user: { uid: string; name: string; email?: string; avatar?: string }
+): Promise<{ success: boolean; message?: string; room?: Room }> {
+  const roomCode = PUBLIC_ROOM_ID;
+  const roomPath = `rooms/${roomCode}`;
+  try {
+    const existing = await getRoomByCode(roomCode);
+    if (!existing || existing.status === 'closed') {
+      await createRoomInFirestore(roomCode, 'Live Chat', user, 20);
+      const created = await getRoomByCode(roomCode);
+      if (created) {
+        return { success: true, room: created };
+      }
+    }
+    return await joinRoomInFirestore(roomCode, user);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, roomPath);
+  }
+}
+
+/**
  * Fetch a room document by code
  */
 export async function getRoomByCode(code: string): Promise<Room | null> {
@@ -235,37 +260,6 @@ export async function getRoomByCode(code: string): Promise<Room | null> {
   } catch (error) {
     handleFirestoreError(error, OperationType.GET, roomPath);
   }
-}
-
-/**
- * Get or automatically create the default Global Public Room (code: 'GLOBAL')
- * so that any user accessing the app can join immediately without needing codes.
- */
-export async function getOrCreateGlobalRoom(
-  user: { uid: string; name: string; email?: string; avatar?: string }
-): Promise<Room> {
-  const globalCode = 'GLOBAL';
-  const existing = await getRoomByCode(globalCode);
-
-  if (existing) {
-    // Join or update presence in existing global room
-    await joinRoomInFirestore(globalCode, user);
-    const updated = await getRoomByCode(globalCode);
-    return updated || existing;
-  }
-
-  // Create global room if it doesn't exist yet
-  await createRoomInFirestore(
-    globalCode,
-    'Ruang Utama (Global Chat)',
-    user,
-    20
-  );
-  const created = await getRoomByCode(globalCode);
-  if (!created) {
-    throw new Error('Gagal menyiapkan Ruang Utama otomatis.');
-  }
-  return created;
 }
 
 /**

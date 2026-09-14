@@ -1,6 +1,6 @@
 {
   "name": "Live Chat",
-  "description": "Aplikasi web Live Chat grup real-time untuk hingga 20 orang dengan fitur obrolan instan, kirim foto, panggilan video WebRTC, dan kode room unik.",
+  "description": "Aplikasi web Live Chat grup real-time untuk hingga 20 orang dengan fitur obrolan instan, kirim foto, dan panggilan video WebRTC langsung tanpa kode room.",
   "requestFramePermissions": ["camera", "microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

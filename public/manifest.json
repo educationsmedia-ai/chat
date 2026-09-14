@@ -2,7 +2,7 @@
   "id": "/",
   "name": "Live Chat",
   "short_name": "LiveChat",
-  "description": "Aplikasi web Live Chat grup real-time untuk hingga 20 orang dengan fitur obrolan instan, kirim foto, panggilan video WebRTC, dan kode room unik.",
+  "description": "Aplikasi web Live Chat grup real-time untuk hingga 20 orang dengan fitur obrolan instan, kirim foto, dan panggilan video WebRTC langsung tanpa kode room.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

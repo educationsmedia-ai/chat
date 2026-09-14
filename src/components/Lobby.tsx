@@ -1,26 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import {
   MessageSquare,
-  PlusCircle,
   LogIn,
   RefreshCw,
-  Copy,
-  Check,
   HelpCircle,
   AlertCircle,
   Users,
   Radio,
   ArrowRight,
   Smartphone,
-  Download,
+  Video,
+  Image as ImageIcon,
   Zap,
 } from 'lucide-react';
 import {
   loginWithGoogle,
   logoutUser,
-  generateRoomCode,
-  createRoomInFirestore,
-  joinRoomInFirestore,
+  enterPublicRoom,
   getOrCreateSessionUser,
 } from '../firebase';
 import type { LocalUserProfile, Room } from '../types';
@@ -28,9 +24,6 @@ import type { LocalUserProfile, Room } from '../types';
 interface LobbyProps {
   currentUser: LocalUserProfile | null;
   onEnterRoom: (room: Room, userSlot: 'user1' | 'user2') => void;
-  onInstantJoin: (preferredName?: string) => Promise<void>;
-  isAutoConnecting?: boolean;
-  autoConnectError?: string | null;
   onOpenGuide: () => void;
   initialCode?: string;
 }
@@ -38,22 +31,13 @@ interface LobbyProps {
 export const Lobby: React.FC<LobbyProps> = ({
   currentUser,
   onEnterRoom,
-  onInstantJoin,
-  isAutoConnecting = false,
-  autoConnectError = null,
   onOpenGuide,
-  initialCode = '',
 }) => {
   const [userName, setUserName] = useState<string>(
     currentUser?.name || localStorage.getItem('livechat_username') || ''
   );
-  const [roomName, setRoomName] = useState<string>('');
-  const [generatedCode, setGeneratedCode] = useState<string>(generateRoomCode());
-  const [inputCode, setInputCode] = useState<string>(initialCode);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [copiedCode, setCopiedCode] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<'create' | 'join'>('create');
   const [isAuthenticating, setIsAuthenticating] = useState<boolean>(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstalled, setIsInstalled] = useState<boolean>(false);
@@ -113,22 +97,6 @@ export const Lobby: React.FC<LobbyProps> = ({
     }
   };
 
-  const handleRefreshCode = () => {
-    const code = generateRoomCode();
-    setGeneratedCode(code);
-    setCopiedCode(false);
-  };
-
-  const handleCopyCode = async () => {
-    try {
-      await navigator.clipboard.writeText(generatedCode);
-      setCopiedCode(true);
-      setTimeout(() => setCopiedCode(false), 2000);
-    } catch {
-      // ignore clipboard error
-    }
-  };
-
   // Google Login button handler (optional)
   const handleGoogleLogin = async () => {
     setIsAuthenticating(true);
@@ -147,14 +115,14 @@ export const Lobby: React.FC<LobbyProps> = ({
     }
   };
 
-  // 1. Buat Room
-  const handleCreateRoom = async (e: React.FormEvent) => {
+  // Direct Enter Chat (No Room Code Required)
+  const handleEnterChat = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
     const trimmedName = userName.trim();
     if (!trimmedName) {
-      setErrorMsg('Harap masukkan nama pengguna Anda sebelum membuat room.');
+      setErrorMsg('Harap masukkan nama Anda sebelum masuk ke chat.');
       return;
     }
 
@@ -162,94 +130,15 @@ export const Lobby: React.FC<LobbyProps> = ({
       setIsLoading(true);
       const user = getOrCreateSessionUser(trimmedName);
 
-      const createdCode = await createRoomInFirestore(
-        generatedCode,
-        roomName.trim() || `Ruang ${generatedCode}`,
-        {
-          uid: user.uid,
-          name: trimmedName,
-          email: user.email || '',
-          avatar: user.avatar || '',
-        }
-      );
-
-      const newRoom: Room = {
-        id: createdCode,
-        code: createdCode,
-        name: roomName.trim() || `Ruang ${createdCode}`,
-        status: 'waiting',
-        createdAt: new Date(),
-        createdBy: user.uid,
-        maxParticipants: 20,
-        participantCount: 1,
-        participantIds: [user.uid],
-        participants: {
-          [user.uid]: {
-            uid: user.uid,
-            name: trimmedName,
-            email: user.email || '',
-            avatar: user.avatar || '',
-            joinedAt: new Date().toISOString(),
-            online: true,
-            typing: false,
-          },
-        },
-        user1: {
-          uid: user.uid,
-          name: trimmedName,
-          email: user.email || '',
-          avatar: user.avatar || '',
-        },
-        user2: null,
-        user1Online: true,
-        user2Online: false,
-      };
-
-      onEnterRoom(newRoom, 'user1');
-    } catch (err: unknown) {
-      console.error('Failed to create room:', err);
-      const message = err instanceof Error ? err.message : 'Gagal membuat room. Periksa koneksi internet Anda.';
-      setErrorMsg(message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // 2. Gabung Room
-  const handleJoinRoom = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg(null);
-
-    const trimmedName = userName.trim();
-    if (!trimmedName) {
-      setErrorMsg('Harap masukkan nama pengguna Anda sebelum bergabung.');
-      return;
-    }
-
-    const cleanCode = inputCode.trim().toUpperCase();
-    if (!cleanCode) {
-      setErrorMsg('Harap masukkan Kode Room yang valid.');
-      return;
-    }
-
-    if (cleanCode.length < 4 || cleanCode.length > 10) {
-      setErrorMsg('Kode Room tidak valid (harus 4-10 karakter alfanumerik).');
-      return;
-    }
-
-    try {
-      setIsLoading(true);
-      const user = getOrCreateSessionUser(trimmedName);
-
-      const result = await joinRoomInFirestore(cleanCode, {
+      const result = await enterPublicRoom({
         uid: user.uid,
         name: trimmedName,
         email: user.email || '',
         avatar: user.avatar || '',
       });
 
-      if (!result.success || !result.room) {
-        setErrorMsg(result.message || 'Gagal bergabung ke room.');
+      if (!result || !result.success || !result.room) {
+        setErrorMsg(result?.message || 'Gagal terhubung ke chat. Silakan coba lagi.');
         return;
       }
 
@@ -259,8 +148,11 @@ export const Lobby: React.FC<LobbyProps> = ({
           : 'user2';
       onEnterRoom(result.room, slot);
     } catch (err: unknown) {
-      console.error('Failed to join room:', err);
-      const message = err instanceof Error ? err.message : 'Gagal bergabung ke room. Periksa koneksi atau kode room.';
+      console.error('Failed to enter chat:', err);
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Gagal masuk ke chat. Periksa koneksi internet Anda.';
       setErrorMsg(message);
     } finally {
       setIsLoading(false);
@@ -282,10 +174,12 @@ export const Lobby: React.FC<LobbyProps> = ({
               LIVE CHAT
               <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                 <Radio size={10} className="animate-pulse text-emerald-400" />
-                Real-Time
+                Langsung
               </span>
             </h1>
-            <p className="text-xs text-neutral-400">Percakapan grup hingga 20 orang • Aman & Terenkripsi</p>
+            <p className="text-xs text-neutral-400">
+              Masuk langsung tanpa kode room • Hingga 20 orang online
+            </p>
           </div>
         </div>
 
@@ -306,7 +200,7 @@ export const Lobby: React.FC<LobbyProps> = ({
             id="open-guide-btn"
             onClick={onOpenGuide}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neutral-900 border border-neutral-800 text-xs font-medium text-neutral-300 hover:text-white hover:bg-neutral-800 transition-all cursor-pointer"
-            title="Panduan & Arsitektur"
+            title="Panduan Aplikasi"
           >
             <HelpCircle size={14} />
             <span className="hidden sm:inline">Panduan</span>
@@ -349,112 +243,19 @@ export const Lobby: React.FC<LobbyProps> = ({
       </header>
 
       {/* Main Form Center Box */}
-      <main className="w-full max-w-lg mx-auto flex-1 flex flex-col justify-center my-2">
-        <div className="bg-neutral-900/90 border border-neutral-800/90 rounded-2xl p-6 sm:p-7 shadow-2xl backdrop-blur-md">
-          {/* Form Title & User Profile Setup */}
-          <div className="space-y-4 mb-6">
-            <div>
-              <label htmlFor="user-name-input" className="block text-xs font-medium text-neutral-300 mb-1.5">
-                Nama Pengguna Anda <span className="text-emerald-400">*</span>
-              </label>
-              <div className="relative">
-                <input
-                  id="user-name-input"
-                  type="text"
-                  maxLength={50}
-                  placeholder="Contoh: Budi Pratama"
-                  value={userName}
-                  onChange={(e) => handleNameChange(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl px-4 py-2.5 text-sm text-neutral-100 placeholder:text-neutral-500 transition-all outline-none"
-                />
-                <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[11px] text-neutral-400">
-                  {userName.length}/50
-                </span>
-              </div>
-              <p className="text-[11px] text-neutral-400 mt-1">
-                Ketik nama Anda di atas untuk langsung mulai mengobrol.
-              </p>
+      <main className="w-full max-w-md mx-auto flex-1 flex flex-col justify-center my-4">
+        <div className="bg-neutral-900/90 border border-neutral-800/90 rounded-2xl p-6 sm:p-8 shadow-2xl backdrop-blur-md">
+          {/* Header icon badge */}
+          <div className="text-center mb-6">
+            <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shadow-inner">
+              <Zap size={28} className="animate-pulse" />
             </div>
-
-            {/* OPSI PALING SEDERHANA: MASUK OTOMATIS KE ROOM BERSAMA */}
-            <div className="bg-gradient-to-r from-emerald-500/15 via-teal-500/10 to-emerald-500/15 border border-emerald-500/30 rounded-2xl p-4 space-y-2.5 shadow-md">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 uppercase tracking-wider">
-                  <Zap size={14} className="text-emerald-400 fill-emerald-400" />
-                  <span>Mode Paling Mudah (Otomatis)</span>
-                </div>
-                <span className="text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full">
-                  Tanpa Kode
-                </span>
-              </div>
-
-              <p className="text-xs text-neutral-300 leading-relaxed">
-                Semua orang yang membuka aplikasi ini langsung masuk ke <strong>Ruang Obrolan Utama</strong> yang sama secara otomatis!
-              </p>
-
-              <button
-                id="instant-auto-join-btn"
-                type="button"
-                onClick={() => {
-                  if (!userName.trim()) {
-                    setErrorMsg('Harap ketik nama Anda terlebih dahulu di kolom atas.');
-                    return;
-                  }
-                  onInstantJoin(userName.trim());
-                }}
-                disabled={isAutoConnecting || isLoading}
-                className="w-full py-3 px-4 bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-extrabold rounded-xl text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-500/25 active:scale-98 disabled:opacity-50 cursor-pointer"
-              >
-                {isAutoConnecting ? (
-                  <>
-                    <RefreshCw size={16} className="animate-spin text-neutral-950" />
-                    <span>Menghubungkan ke Ruang Utama...</span>
-                  </>
-                ) : (
-                  <>
-                    <Zap size={16} className="fill-neutral-950 text-neutral-950" />
-                    <span>Langsung Masuk ke Room Otomatis</span>
-                    <ArrowRight size={16} />
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-
-          <div className="relative flex py-1 items-center mb-5">
-            <div className="flex-grow border-t border-neutral-800"></div>
-            <span className="flex-shrink mx-3 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold">
-              Atau Gunakan Room Khusus / Kode
-            </span>
-            <div className="flex-grow border-t border-neutral-800"></div>
-          </div>
-
-          {/* Action Tabs: Buat Room vs Gabung Room */}
-          <div className="flex rounded-xl bg-neutral-950 p-1 border border-neutral-800 mb-6">
-            <button
-              id="tab-create-room"
-              onClick={() => { setActiveTab('create'); setErrorMsg(null); }}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === 'create'
-                  ? 'bg-neutral-800 text-white shadow-xs'
-                  : 'text-neutral-400 hover:text-neutral-200'
-              }`}
-            >
-              <PlusCircle size={14} />
-              Buat Room Baru
-            </button>
-            <button
-              id="tab-join-room"
-              onClick={() => { setActiveTab('join'); setErrorMsg(null); }}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === 'join'
-                  ? 'bg-neutral-800 text-white shadow-xs'
-                  : 'text-neutral-400 hover:text-neutral-200'
-              }`}
-            >
-              <Users size={14} />
-              Gabung Room
-            </button>
+            <h2 className="text-xl font-bold text-white tracking-tight">
+              Masuk ke Live Chat
+            </h2>
+            <p className="text-xs text-neutral-400 mt-1 max-w-xs mx-auto">
+              Tidak perlu memasukkan kode room. Cukup ketik nama Anda dan langsung mengobrol bersama!
+            </p>
           </div>
 
           {/* Error Message Banner */}
@@ -464,146 +265,84 @@ export const Lobby: React.FC<LobbyProps> = ({
                 <AlertCircle size={16} className="shrink-0 mt-0.5 text-rose-400" />
                 <div className="flex-1 font-medium">{errorMsg}</div>
               </div>
-              {errorMsg.includes('Google') && (
-                <div className="pl-6 text-[11px] text-neutral-400 flex items-center gap-2">
-                  <span>💡 Anda tidak wajib login Google. Cukup isi nama Anda dan langsung buat/gabung room.</span>
-                </div>
-              )}
             </div>
           )}
 
-          {/* TAB 1: BUAT ROOM */}
-          {activeTab === 'create' && (
-            <form onSubmit={handleCreateRoom} className="space-y-4">
-              <div>
-                <label htmlFor="room-name-input" className="block text-xs font-medium text-neutral-300 mb-1.5">
-                  Nama Ruang Chat (Opsional)
-                </label>
-                <input
-                  id="room-name-input"
-                  type="text"
-                  maxLength={64}
-                  placeholder={`Contoh: Diskusi Santai`}
-                  value={roomName}
-                  onChange={(e) => setRoomName(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl px-4 py-2 text-sm text-neutral-100 placeholder:text-neutral-500 transition-all outline-none"
-                />
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs font-medium text-neutral-300">
-                    Kode Room Unik Anda:
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleRefreshCode}
-                    className="text-[11px] text-neutral-400 hover:text-emerald-400 flex items-center gap-1 cursor-pointer transition-colors"
-                    title="Buat kode baru"
-                  >
-                    <RefreshCw size={11} /> Ganti Kode
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2.5 flex items-center justify-between">
-                    <span className="font-mono text-base font-bold tracking-widest text-emerald-400">
-                      {generatedCode}
-                    </span>
-                    <span className="text-[10px] uppercase font-bold text-emerald-400 bg-emerald-950/80 border border-emerald-500/20 px-2 py-0.5 rounded">
-                      Hingga 20 Org
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    id="copy-lobby-code-btn"
-                    onClick={handleCopyCode}
-                    className="p-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700/60 transition-colors cursor-pointer"
-                    title="Salin Kode Room"
-                  >
-                    {copiedCode ? <Check size={16} className="text-emerald-400" /> : <Copy size={16} />}
-                  </button>
-                </div>
-                <p className="text-[11px] text-neutral-400 mt-1">
-                  Bagikan kode ini kepada hingga 20 teman/kolega agar bisa masuk ke obrolan grup yang sama.
-                </p>
-              </div>
-
-              <button
-                id="create-and-enter-btn"
-                type="submit"
-                disabled={isLoading}
-                className="w-full mt-2 py-3 px-4 bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+          {/* Form: Just Name Input and Single Enter Button */}
+          <form onSubmit={handleEnterChat} className="space-y-4">
+            <div>
+              <label
+                htmlFor="user-name-input"
+                className="block text-xs font-semibold text-neutral-300 mb-1.5"
               >
-                {isLoading ? (
-                  <>
-                    <RefreshCw size={16} className="animate-spin" />
-                    <span>Menyiapkan Room...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Buat Room & Masuk Chat</span>
-                    <ArrowRight size={16} />
-                  </>
-                )}
-              </button>
-            </form>
-          )}
-
-          {/* TAB 2: GABUNG ROOM */}
-          {activeTab === 'join' && (
-            <form onSubmit={handleJoinRoom} className="space-y-4">
-              <div>
-                <label htmlFor="join-room-code-input" className="block text-xs font-medium text-neutral-300 mb-1.5">
-                  Masukkan Kode Room Teman Anda <span className="text-emerald-400">*</span>
-                </label>
+                Nama Pengguna Anda <span className="text-emerald-400">*</span>
+              </label>
+              <div className="relative">
                 <input
-                  id="join-room-code-input"
+                  id="user-name-input"
                   type="text"
-                  maxLength={10}
-                  placeholder="Contoh: ABC123"
-                  value={inputCode}
-                  onChange={(e) => {
-                    setInputCode(e.target.value.toUpperCase());
-                    if (errorMsg) setErrorMsg(null);
-                  }}
-                  className="w-full bg-neutral-950 border border-neutral-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl px-4 py-2.5 text-base font-mono tracking-wider uppercase text-neutral-100 placeholder:text-neutral-500 transition-all outline-none"
+                  maxLength={50}
+                  autoFocus
+                  placeholder="Contoh: Budi Pratama"
+                  value={userName}
+                  onChange={(e) => handleNameChange(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl px-4 py-3 text-base text-neutral-100 placeholder:text-neutral-500 transition-all outline-none"
                 />
-                <p className="text-[11px] text-neutral-400 mt-1">
-                  Kapasitas ruangan dapat menampung hingga 20 pengguna sekaligus.
-                </p>
+                <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[11px] text-neutral-400">
+                  {userName.length}/50
+                </span>
               </div>
+              <p className="text-[11px] text-neutral-400 mt-1.5">
+                Nama ini akan ditampilkan kepada pengguna lain di ruang obrolan.
+              </p>
+            </div>
 
-              <button
-                id="join-room-submit-btn"
-                type="submit"
-                disabled={isLoading}
-                className="w-full mt-2 py-3 px-4 bg-cyan-500 hover:bg-cyan-400 text-neutral-950 font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-cyan-500/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-              >
-                {isLoading ? (
-                  <>
-                    <RefreshCw size={16} className="animate-spin" />
-                    <span>Memeriksa & Bergabung...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Gabung Room & Masuk Chat</span>
-                    <ArrowRight size={16} />
-                  </>
-                )}
-              </button>
-            </form>
-          )}
+            <button
+              id="enter-chat-btn"
+              type="submit"
+              disabled={isLoading}
+              className="w-full mt-3 py-3.5 px-4 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.99] text-neutral-950 font-bold rounded-xl text-base flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            >
+              {isLoading ? (
+                <>
+                  <RefreshCw size={18} className="animate-spin" />
+                  <span>Menghubungkan ke Chat...</span>
+                </>
+              ) : (
+                <>
+                  <span>Masuk ke Chat</span>
+                  <ArrowRight size={18} />
+                </>
+              )}
+            </button>
+          </form>
 
-          {/* Concept Diagram / Explainer */}
-          <div className="mt-6 pt-5 border-t border-neutral-800 text-[11px] text-neutral-400 flex items-center justify-between">
-            <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-ping" />
-              Sinkronisasi pesan & panggilan instan
-            </span>
-            <span className="text-emerald-400 font-medium bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/20">
-              Kapasitas: Hingga 20 Pengguna
-            </span>
+          {/* Feature highlights grid */}
+          <div className="mt-6 pt-5 border-t border-neutral-800 grid grid-cols-2 gap-3 text-left">
+            <div className="flex items-center gap-2 p-2 rounded-lg bg-neutral-950/60 border border-neutral-800/60">
+              <Zap size={14} className="text-emerald-400 shrink-0" />
+              <span className="text-[11px] text-neutral-300 font-medium leading-tight">
+                Tanpa Kode Room
+              </span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded-lg bg-neutral-950/60 border border-neutral-800/60">
+              <Users size={14} className="text-cyan-400 shrink-0" />
+              <span className="text-[11px] text-neutral-300 font-medium leading-tight">
+                Hingga 20 Orang
+              </span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded-lg bg-neutral-950/60 border border-neutral-800/60">
+              <ImageIcon size={14} className="text-amber-400 shrink-0" />
+              <span className="text-[11px] text-neutral-300 font-medium leading-tight">
+                Kirim Foto Instan
+              </span>
+            </div>
+            <div className="flex items-center gap-2 p-2 rounded-lg bg-neutral-950/60 border border-neutral-800/60">
+              <Video size={14} className="text-rose-400 shrink-0" />
+              <span className="text-[11px] text-neutral-300 font-medium leading-tight">
+                Panggilan Video
+              </span>
+            </div>
           </div>
         </div>
       </main>
