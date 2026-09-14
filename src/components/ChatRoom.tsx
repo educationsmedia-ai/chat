@@ -613,9 +613,15 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               <Users size={28} className="animate-pulse" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-neutral-100">Menunggu peserta lain bergabung...</h3>
+              <h3 className="text-base font-bold text-neutral-100">
+                {room.code === 'GLOBAL'
+                  ? 'Anda telah terhubung di Ruang Obrolan Utama!'
+                  : 'Menunggu peserta lain bergabung...'}
+              </h3>
               <p className="text-xs text-neutral-400 mt-1 max-w-sm mx-auto">
-                Ruang obrolan ini dapat menampung hingga <strong>20 orang</strong> sekaligus. Bagikan kode ruangan di bawah ini kepada teman atau rekan kerja Anda:
+                {room.code === 'GLOBAL'
+                  ? 'Siapa pun yang membuka aplikasi ini akan otomatis masuk ke ruangan ini. Anda bisa langsung mengetik pesan atau membagikan link ke teman-teman Anda.'
+                  : 'Ruang obrolan ini dapat menampung hingga 20 orang sekaligus. Bagikan kode ruangan di bawah ini kepada teman atau rekan kerja Anda:'}
               </p>
             </div>
 
@@ -644,7 +650,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             </div>
 
             <div className="text-[11px] text-neutral-400">
-              💡 Buka tab browser baru atau HP lain dan masukkan kode di atas untuk langsung menguji chat 20 orang, foto, dan panggilan video.
+              💡 Buka aplikasi di HP atau tab browser lain untuk langsung melihat pesan tersinkronisasi secara real-time.
             </div>
           </div>
         )}

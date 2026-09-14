@@ -238,6 +238,37 @@ export async function getRoomByCode(code: string): Promise<Room | null> {
 }
 
 /**
+ * Get or automatically create the default Global Public Room (code: 'GLOBAL')
+ * so that any user accessing the app can join immediately without needing codes.
+ */
+export async function getOrCreateGlobalRoom(
+  user: { uid: string; name: string; email?: string; avatar?: string }
+): Promise<Room> {
+  const globalCode = 'GLOBAL';
+  const existing = await getRoomByCode(globalCode);
+
+  if (existing) {
+    // Join or update presence in existing global room
+    await joinRoomInFirestore(globalCode, user);
+    const updated = await getRoomByCode(globalCode);
+    return updated || existing;
+  }
+
+  // Create global room if it doesn't exist yet
+  await createRoomInFirestore(
+    globalCode,
+    'Ruang Utama (Global Chat)',
+    user,
+    20
+  );
+  const created = await getRoomByCode(globalCode);
+  if (!created) {
+    throw new Error('Gagal menyiapkan Ruang Utama otomatis.');
+  }
+  return created;
+}
+
+/**
  * Join an existing room (enforcing maximum 20 members limit)
  */
 export async function joinRoomInFirestore(
