@@ -41,18 +41,12 @@ export const GuideModal: React.FC<GuideModalProps> = ({ isOpen, onClose }) => {
           {/* Cara Pengujian Multiplayer */}
           <section className="space-y-2.5">
             <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-              <Smartphone size={15} /> 1. Mode Otomatis & Pengujian Multi-User
+              <Smartphone size={15} /> 1. Cara Menguji Real-Time Hingga 20 Pengguna
             </h3>
-            <div className="bg-neutral-800/60 p-3.5 rounded-xl border border-neutral-700/60 space-y-2.5 text-xs leading-relaxed">
-              <div className="p-2.5 rounded-lg bg-emerald-950/60 border border-emerald-500/30">
-                <p className="font-bold text-emerald-300 mb-1">⚡ Mode Paling Mudah (Otomatis):</p>
-                <p>Cukup ketik nama Anda dan klik tombol hijau <strong>"Langsung Masuk ke Room Otomatis"</strong>. Siapa pun di belahan dunia mana pun yang membuka link aplikasi ini dan menekan tombol tersebut akan langsung masuk ke ruang obrolan yang sama tanpa perlu bertukar kode!</p>
-              </div>
-              <div>
-                <p className="font-semibold text-neutral-200 mb-0.5">🔑 Mode Room Khusus (Kode Unik):</p>
-                <p>Jika Anda ingin membuat ruang privat terpisah, Anda dapat membuat kode 6 digit sendiri (contoh: <code className="bg-neutral-950 px-1.5 py-0.5 rounded text-emerald-300 font-mono">ABC123</code>) dan membagikannya ke orang tertentu saja.</p>
-              </div>
-              <p><strong className="text-neutral-100">Batas Kapasitas 20 Orang:</strong> Sistem dan aturan Firestore membatasi maksimal 20 orang per room. Jika pengguna ke-21 mencoba bergabung, sistem akan memberikan notifikasi bahwa ruang sudah penuh.</p>
+            <div className="bg-neutral-800/60 p-3.5 rounded-xl border border-neutral-700/60 space-y-2 text-xs leading-relaxed">
+              <p><strong className="text-neutral-100">Pembuat Room:</strong> Buat Room baru, dapatkan kode unik 6 karakter (contoh: <code className="bg-neutral-950 px-1.5 py-0.5 rounded text-emerald-300 font-mono">ABC123</code>).</p>
+              <p><strong className="text-neutral-100">Peserta Lain (Hingga 20 Orang):</strong> Bagikan kode tersebut kepada rekan/teman Anda. Mereka dapat membuka link di HP atau browser lain, memasukkan nama mereka dan kode yang sama lalu klik Gabung.</p>
+              <p><strong className="text-neutral-100">Batas Kapasitas 20 Orang:</strong> Sistem dan aturan Firestore membatasi maksimal 20 orang per room. Jika pengguna ke-21 mencoba bergabung, sistem akan memberikan notifikasi: <span className="text-amber-400 font-medium">"Room sudah penuh. Maksimal 20 orang."</span></p>
             </div>
           </section>
 

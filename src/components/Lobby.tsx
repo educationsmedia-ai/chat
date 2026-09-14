@@ -13,7 +13,6 @@ import {
   ArrowRight,
   Smartphone,
   Download,
-  Zap,
 } from 'lucide-react';
 import {
   loginWithGoogle,
@@ -28,9 +27,6 @@ import type { LocalUserProfile, Room } from '../types';
 interface LobbyProps {
   currentUser: LocalUserProfile | null;
   onEnterRoom: (room: Room, userSlot: 'user1' | 'user2') => void;
-  onInstantJoin: (preferredName?: string) => Promise<void>;
-  isAutoConnecting?: boolean;
-  autoConnectError?: string | null;
   onOpenGuide: () => void;
   initialCode?: string;
 }
@@ -38,9 +34,6 @@ interface LobbyProps {
 export const Lobby: React.FC<LobbyProps> = ({
   currentUser,
   onEnterRoom,
-  onInstantJoin,
-  isAutoConnecting = false,
-  autoConnectError = null,
   onOpenGuide,
   initialCode = '',
 }) => {
@@ -372,61 +365,9 @@ export const Lobby: React.FC<LobbyProps> = ({
                 </span>
               </div>
               <p className="text-[11px] text-neutral-400 mt-1">
-                Ketik nama Anda di atas untuk langsung mulai mengobrol.
+                Ketik nama Anda di atas, lalu langsung klik <strong>Buat Room</strong> atau <strong>Gabung Room</strong>.
               </p>
             </div>
-
-            {/* OPSI PALING SEDERHANA: MASUK OTOMATIS KE ROOM BERSAMA */}
-            <div className="bg-gradient-to-r from-emerald-500/15 via-teal-500/10 to-emerald-500/15 border border-emerald-500/30 rounded-2xl p-4 space-y-2.5 shadow-md">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 uppercase tracking-wider">
-                  <Zap size={14} className="text-emerald-400 fill-emerald-400" />
-                  <span>Mode Paling Mudah (Otomatis)</span>
-                </div>
-                <span className="text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full">
-                  Tanpa Kode
-                </span>
-              </div>
-
-              <p className="text-xs text-neutral-300 leading-relaxed">
-                Semua orang yang membuka aplikasi ini langsung masuk ke <strong>Ruang Obrolan Utama</strong> yang sama secara otomatis!
-              </p>
-
-              <button
-                id="instant-auto-join-btn"
-                type="button"
-                onClick={() => {
-                  if (!userName.trim()) {
-                    setErrorMsg('Harap ketik nama Anda terlebih dahulu di kolom atas.');
-                    return;
-                  }
-                  onInstantJoin(userName.trim());
-                }}
-                disabled={isAutoConnecting || isLoading}
-                className="w-full py-3 px-4 bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-extrabold rounded-xl text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-500/25 active:scale-98 disabled:opacity-50 cursor-pointer"
-              >
-                {isAutoConnecting ? (
-                  <>
-                    <RefreshCw size={16} className="animate-spin text-neutral-950" />
-                    <span>Menghubungkan ke Ruang Utama...</span>
-                  </>
-                ) : (
-                  <>
-                    <Zap size={16} className="fill-neutral-950 text-neutral-950" />
-                    <span>Langsung Masuk ke Room Otomatis</span>
-                    <ArrowRight size={16} />
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-
-          <div className="relative flex py-1 items-center mb-5">
-            <div className="flex-grow border-t border-neutral-800"></div>
-            <span className="flex-shrink mx-3 text-[11px] uppercase tracking-wider text-neutral-500 font-semibold">
-              Atau Gunakan Room Khusus / Kode
-            </span>
-            <div className="flex-grow border-t border-neutral-800"></div>
           </div>
 
           {/* Action Tabs: Buat Room vs Gabung Room */}
