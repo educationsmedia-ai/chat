@@ -75,13 +75,13 @@ export default function App() {
           userSlot={userSlot}
           currentUserId={
             currentUser?.uid ||
-            (userSlot === 'user1' ? activeRoom.user1.uid : activeRoom.user2?.uid) ||
+            (userSlot === 'user1' ? activeRoom.user1?.uid : activeRoom.user2?.uid) ||
             localStorage.getItem('livechat_session_uid') ||
             ''
           }
           currentUserName={
             currentUser?.name ||
-            (userSlot === 'user1' ? activeRoom.user1.name : activeRoom.user2?.name) ||
+            (userSlot === 'user1' ? activeRoom.user1?.name : activeRoom.user2?.name) ||
             localStorage.getItem('livechat_username') ||
             'Pengguna'
           }
